@@ -140,7 +140,8 @@ const Designer = () => {
 
   // Check authentication state
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    // Handle both real Supabase and mock auth systems
+    const authResponse = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user || null);
       if (session?.user && canvas) {
         removeWatermark();
@@ -149,7 +150,14 @@ const Designer = () => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    // Extract subscription - handle both formats
+    const subscription = authResponse?.data?.subscription || authResponse;
+
+    return () => {
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+    };
   }, [canvas]);
 
   // Add watermark to canvas
@@ -198,20 +206,26 @@ const Designer = () => {
           password
         });
         if (error) throw error;
-        alert('Check your email for verification link!');
+        if (!isMockAuth) {
+          alert('Check your email for verification link!');
+        }
       }
       setShowAuth(false);
       setEmail('');
       setPassword('');
     } catch (error) {
-      alert(error.message);
+      alert(error.message || 'Authentication failed');
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   // File upload handler
