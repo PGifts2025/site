@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { fabric } from 'fabric';
+import * as fabric from 'fabric';
 import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseConfig, isMockAuth } from '../config/supabase';
