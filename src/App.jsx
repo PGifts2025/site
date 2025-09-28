@@ -14,6 +14,8 @@ import Speakers from './pages/Speakers';
 import Pens from './pages/Pens';
 import TeaTowels from './pages/TeaTowels';
 import Designer from './pages/Designer';
+import DesignerTest from './pages/DesignerTest';
+import DesignerSimple from './pages/DesignerSimple';
 import HeaderBar from './components/HeaderBar';
 import AuthProvider from './components/AuthProvider';
 
@@ -36,6 +38,8 @@ function App() {
           <Route path="/pens" element={<Pens />} />
           <Route path="/tea-towels" element={<TeaTowels />} />
           <Route path="/designer" element={<Designer />} />
+          <Route path="/designer-test" element={<DesignerTest />} />
+          <Route path="/designer-simple" element={<DesignerSimple />} />
         </Routes>
       </Router>
     </AuthProvider>
