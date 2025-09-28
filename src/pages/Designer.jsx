@@ -238,8 +238,8 @@ const Designer = () => {
       const imgUrl = event.target.result;
       
       if (file.type.includes('svg')) {
-        fabric.loadSVGFromString(imgUrl, (objects, options) => {
-          const obj = fabric.util.groupSVGElements(objects, options);
+        fabric.loadSVGFromString(imgUrl).then((result) => {
+          const obj = fabric.util.groupSVGElements(result.objects, result.options);
           obj.set({
             left: 100,
             top: 100,
@@ -248,9 +248,11 @@ const Designer = () => {
           });
           canvas.add(obj);
           canvas.renderAll();
+        }).catch((error) => {
+          console.error('Error loading SVG:', error);
         });
       } else {
-        fabric.Image.fromURL(imgUrl, (img) => {
+        fabric.Image.fromURL(imgUrl).then((img) => {
           img.set({
             left: 100,
             top: 100,
@@ -259,6 +261,8 @@ const Designer = () => {
           });
           canvas.add(img);
           canvas.renderAll();
+        }).catch((error) => {
+          console.error('Error loading image:', error);
         });
       }
     };
@@ -385,7 +389,7 @@ const Designer = () => {
         id: 'print-area-guide'
       });
       canvas.add(guide);
-      canvas.sendToBack(guide);
+      canvas.sendObjectToBack(guide);
       canvas.renderAll();
     }
   };

@@ -32,8 +32,8 @@ export const loadImageToCanvas = (canvas, file) => {
       const imgUrl = event.target.result;
       
       if (file.type === 'image/svg+xml') {
-        fabric.loadSVGFromString(imgUrl, (objects, options) => {
-          const obj = fabric.util.groupSVGElements(objects, options);
+        fabric.loadSVGFromString(imgUrl).then((result) => {
+          const obj = fabric.util.groupSVGElements(result.objects, result.options);
           obj.set({
             left: 100,
             top: 100,
@@ -43,9 +43,12 @@ export const loadImageToCanvas = (canvas, file) => {
           canvas.add(obj);
           canvas.renderAll();
           resolve(obj);
+        }).catch((error) => {
+          console.error('Error loading SVG:', error);
+          reject(error);
         });
       } else {
-        fabric.Image.fromURL(imgUrl, (img) => {
+        fabric.Image.fromURL(imgUrl).then((img) => {
           // Scale image to fit canvas if too large
           const maxWidth = canvas.width * 0.8;
           const maxHeight = canvas.height * 0.8;
@@ -69,6 +72,9 @@ export const loadImageToCanvas = (canvas, file) => {
           canvas.add(img);
           canvas.renderAll();
           resolve(img);
+        }).catch((error) => {
+          console.error('Error loading image:', error);
+          reject(error);
         });
       }
     };
@@ -136,7 +142,7 @@ export const addPrintAreaGuide = (canvas, area) => {
   });
   
   canvas.add(guide);
-  canvas.sendToBack(guide);
+  canvas.sendObjectToBack(guide);
   canvas.renderAll();
   return guide;
 };
