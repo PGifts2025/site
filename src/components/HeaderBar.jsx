@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Phone, Search, ShoppingCart, User } from 'lucide-react';
 
 const categories = [
+  { name: 'Design Tool', path: '/designer' },
   { name: 'Cups', path: '/cups' },
   { name: 'Water Bottles', path: '/water-bottles' },
   { name: 'Bags', path: '/bags' },
