@@ -11,6 +11,7 @@ import PrintAreaAdmin from '../components/PrintAreaAdmin';
 import PrintAreaOverlay from '../components/PrintAreaOverlay';
 import PrintAreaSelector from '../components/PrintAreaSelector';
 import { usePrintAreas } from '../hooks/usePrintAreas';
+import { getValidatedProducts } from '../utils/productUtils';
 import { 
   validatePrintArea, 
   constrainRectToPrintArea, 
@@ -51,6 +52,8 @@ const EnhancedDesigner = () => {
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const [canvas, setCanvas] = useState(null);
+  const [availableProducts, setAvailableProducts] = useState({});
+  const [productsLoading, setProductsLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState('bag'); // Start with bag for testing
   const [selectedColor, setSelectedColor] = useState('#ffffff');
   const [user, setUser] = useState(null);
@@ -66,7 +69,7 @@ const EnhancedDesigner = () => {
   const [showConstraintWarning, setShowConstraintWarning] = useState(false);
   const [constraintWarningMessage, setConstraintWarningMessage] = useState('');
 
-  // Use the print areas hook
+  // Use the print areas hook with filtered products
   const {
     printAreas,
     selectedPrintArea,
@@ -81,11 +84,38 @@ const EnhancedDesigner = () => {
     getPrintAreaStats,
     availablePrintAreas,
     hasPrintAreas
-  } = usePrintAreas(productsConfig, selectedProduct);
+  } = usePrintAreas(availableProducts, selectedProduct);
 
   // Get current product configuration
-  const currentProduct = productsConfig[selectedProduct];
+  const currentProduct = availableProducts[selectedProduct];
   const currentPrintArea = getCurrentPrintArea();
+
+  // Load available products on component mount
+  useEffect(() => {
+    const loadProducts = async () => {
+      setProductsLoading(true);
+      try {
+        const validatedProducts = await getValidatedProducts(productsConfig);
+        setAvailableProducts(validatedProducts);
+        
+        // If the currently selected product is not available, select the first available one
+        if (!validatedProducts[selectedProduct]) {
+          const availableKeys = Object.keys(validatedProducts);
+          if (availableKeys.length > 0) {
+            setSelectedProduct(availableKeys[0]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading products:', error);
+        // Fallback to original config if validation fails
+        setAvailableProducts(productsConfig);
+      } finally {
+        setProductsLoading(false);
+      }
+    };
+
+    loadProducts();
+  }, []);
 
   // Initialize canvas
   useEffect(() => {
@@ -595,17 +625,33 @@ const EnhancedDesigner = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Product
                   </label>
-                  <select
-                    value={selectedProduct}
-                    onChange={(e) => setSelectedProduct(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {Object.entries(productsConfig).map(([key, product]) => (
-                      <option key={key} value={key}>
-                        {product.name} - ${product.basePrice}
-                      </option>
-                    ))}
-                  </select>
+                  {productsLoading ? (
+                    <div className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500">
+                      Loading products...
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedProduct}
+                      onChange={(e) => setSelectedProduct(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={Object.keys(availableProducts).length === 0}
+                    >
+                      {Object.keys(availableProducts).length === 0 ? (
+                        <option value="">No products available</option>
+                      ) : (
+                        Object.entries(availableProducts).map(([key, product]) => (
+                          <option key={key} value={key}>
+                            {product.name} - ${product.basePrice}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  )}
+                  {!productsLoading && Object.keys(availableProducts).length === 0 && (
+                    <p className="text-sm text-red-600 mt-1">
+                      No products with valid templates found. Please check your template files.
+                    </p>
+                  )}
                 </div>
 
                 {currentProduct && currentProduct.colors.length > 1 && (
