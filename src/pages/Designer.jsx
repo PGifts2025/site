@@ -156,7 +156,15 @@ const Designer = () => {
     });
 
     canvas.add(overlay);
-    canvas.bringToFront(overlay);
+    
+    // Move overlay to front by removing and re-adding it
+    try {
+      canvas.remove(overlay);
+      canvas.add(overlay);
+    } catch (error) {
+      console.warn('Could not move overlay to front:', error);
+    }
+    
     canvas.renderAll();
   };
 

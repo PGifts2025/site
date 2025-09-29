@@ -14,6 +14,12 @@ const PrintAreaOverlay = ({
 }) => {
   useEffect(() => {
     if (!canvas || !printArea) return;
+    
+    // Check if canvas is properly initialized
+    if (!canvas || typeof canvas.add !== 'function') {
+      console.warn('Canvas not properly initialized for PrintAreaOverlay');
+      return;
+    }
 
     // Remove existing overlay
     const existingOverlay = canvas.getObjects().find(obj => obj.id === 'printAreaOverlay');
@@ -84,19 +90,34 @@ const PrintAreaOverlay = ({
 
     canvas.add(overlay);
     canvas.add(label);
-    canvas.bringToFront(overlay);
-    canvas.bringToFront(label);
+    
+    // Move objects to front by removing and re-adding them
+    try {
+      canvas.remove(overlay);
+      canvas.remove(label);
+      canvas.add(overlay);
+      canvas.add(label);
+    } catch (error) {
+      console.warn('Could not move overlay objects to front:', error);
+    }
+    
     canvas.renderAll();
 
     // Cleanup function
     return () => {
-      const overlayElements = canvas.getObjects().filter(obj => 
-        obj.type === 'printAreaOverlay' || 
-        obj.type === 'printAreaCorner' || 
-        obj.id === 'printAreaLabel'
-      );
-      overlayElements.forEach(element => canvas.remove(element));
-      canvas.renderAll();
+      if (!canvas) return;
+      
+      try {
+        const overlayElements = canvas.getObjects().filter(obj => 
+          obj.type === 'printAreaOverlay' || 
+          obj.type === 'printAreaCorner' || 
+          obj.id === 'printAreaLabel'
+        );
+        overlayElements.forEach(element => canvas.remove(element));
+        canvas.renderAll();
+      } catch (error) {
+        console.warn('Error cleaning up PrintAreaOverlay:', error);
+      }
     };
   }, [canvas, printArea, visible, interactive, color, opacity, strokeWidth, dashArray]);
 

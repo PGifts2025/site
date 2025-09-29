@@ -186,14 +186,21 @@ const EnhancedDesigner = () => {
     setTemplateLoaded(false);
     
     try {
-      // Clear canvas
+      // Check if canvas is properly initialized
+      if (!canvas || typeof canvas.add !== 'function') {
+        console.warn('Canvas not properly initialized, retrying...');
+        setTimeout(loadProductTemplate, 100);
+        return;
+      }
+
+      // Clear canvas safely
       canvas.clear();
       
       // Load template image
       const templateUrl = currentProduct.template;
       
       fabric.Image.fromURL(templateUrl, (img) => {
-        if (img) {
+        if (img && canvas) {
           // Scale image to fit canvas
           img.scaleToWidth(800);
           img.scaleToHeight(800);
@@ -216,6 +223,9 @@ const EnhancedDesigner = () => {
           
           setTemplateLoaded(true);
           canvas.renderAll();
+        } else {
+          console.warn('Failed to load template image');
+          setTemplateLoaded(true);
         }
       }, {
         crossOrigin: 'anonymous'
