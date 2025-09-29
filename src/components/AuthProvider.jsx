@@ -1,11 +1,13 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { supabaseConfig, isMockAuth } from '../config/supabase';
+import { createMockSupabase } from '../utils/mockAuth';
 
-// Supabase configuration (replace with your actual keys)
-const supabaseUrl = 'https://your-project.supabase.co';
-const supabaseKey = 'your-anon-key';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Initialize Supabase or mock auth
+const supabase = isMockAuth 
+  ? createMockSupabase() 
+  : createClient(supabaseConfig.url, supabaseConfig.anonKey);
 
 const AuthContext = createContext({});
 
@@ -22,14 +24,20 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-      setLoading(false);
+    // Get initial user
+    const getUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setUser(user);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error getting user:', error);
+        setUser(null);
+        setLoading(false);
+      }
     };
 
-    getSession();
+    getUser();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(

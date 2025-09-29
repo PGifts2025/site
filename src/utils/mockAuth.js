@@ -10,12 +10,25 @@ class MockAuth {
   onAuthStateChange(callback) {
     this.listeners.push(callback);
     // Call immediately with current state
-    callback('SIGNED_IN', { user: this.user });
+    const event = this.user ? 'SIGNED_IN' : 'SIGNED_OUT';
+    const session = this.user ? { user: this.user } : null;
+    callback(event, session);
     
     return {
-      unsubscribe: () => {
-        this.listeners = this.listeners.filter(listener => listener !== callback);
+      data: {
+        subscription: {
+          unsubscribe: () => {
+            this.listeners = this.listeners.filter(listener => listener !== callback);
+          }
+        }
       }
+    };
+  }
+
+  async getUser() {
+    return { 
+      data: { user: this.user }, 
+      error: null 
     };
   }
 
@@ -88,8 +101,42 @@ class MockAuth {
   }
 }
 
+// Mock database functionality
+class MockDatabase {
+  constructor() {
+    this.tables = {
+      designs: JSON.parse(localStorage.getItem('mockDesigns')) || []
+    };
+  }
+
+  from(tableName) {
+    return {
+      insert: async (data) => {
+        if (tableName === 'designs') {
+          const designs = Array.isArray(data) ? data : [data];
+          designs.forEach(design => {
+            design.id = Date.now() + Math.random(); // Simple ID generation
+            this.tables.designs.push(design);
+          });
+          localStorage.setItem('mockDesigns', JSON.stringify(this.tables.designs));
+          return { data: designs, error: null };
+        }
+        return { data: null, error: { message: 'Table not found' } };
+      },
+      
+      select: async (columns = '*') => {
+        if (tableName === 'designs') {
+          return { data: this.tables.designs, error: null };
+        }
+        return { data: [], error: null };
+      }
+    };
+  }
+}
+
 export const createMockSupabase = () => {
   return {
-    auth: new MockAuth()
+    auth: new MockAuth(),
+    from: (tableName) => new MockDatabase().from(tableName)
   };
 };
