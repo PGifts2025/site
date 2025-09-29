@@ -16,6 +16,7 @@ import TeaTowels from './pages/TeaTowels';
 import Designer from './pages/Designer';
 import DesignerTest from './pages/DesignerTest';
 import DesignerSimple from './pages/DesignerSimple';
+import EnhancedDesigner from './pages/EnhancedDesigner';
 import HeaderBar from './components/HeaderBar';
 import AuthProvider from './components/AuthProvider';
 
@@ -40,6 +41,7 @@ function App() {
           <Route path="/designer" element={<Designer />} />
           <Route path="/designer-test" element={<DesignerTest />} />
           <Route path="/designer-simple" element={<DesignerSimple />} />
+          <Route path="/enhanced-designer" element={<EnhancedDesigner />} />
         </Routes>
       </Router>
     </AuthProvider>
