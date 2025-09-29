@@ -1,10 +1,10 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import * as fabric from 'fabric';
 import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseConfig, isMockAuth } from '../config/supabase';
 import { createMockSupabase } from '../utils/mockAuth';
+import productsConfig from '../config/products.json';
 import { 
   Upload, 
   Download, 
@@ -37,7 +37,7 @@ const Designer = () => {
   const [canvas, setCanvas] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState('tshirt');
   const [selectedColor, setSelectedColor] = useState('#ffffff');
-  const [printArea, setPrintArea] = useState('full');
+  const [printArea, setPrintArea] = useState('front');
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState('login');
@@ -45,90 +45,20 @@ const Designer = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [watermarkVisible, setWatermarkVisible] = useState(true);
+  const [templateLoaded, setTemplateLoaded] = useState(false);
 
-  // Product configurations
-  const products = {
-    tshirt: {
-      name: 'T-Shirt',
-      image: '/api/placeholder/400/400',
-      printAreas: {
-        'left-breast': { x: 50, y: 80, width: 80, height: 80, name: 'Left Breast' },
-        'right-breast': { x: 270, y: 80, width: 80, height: 80, name: 'Right Breast' },
-        'full': { x: 50, y: 120, width: 300, height: 200, name: 'Full Size' }
-      },
-      colors: ['#ffffff', '#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff']
-    },
-    pen: {
-      name: 'Pen',
-      image: '/api/placeholder/300/100',
-      printAreas: {
-        'barrel': { x: 50, y: 40, width: 200, height: 20, name: 'Barrel' }
-      },
-      colors: ['#000000', '#0000ff', '#ff0000', '#ffffff']
-    },
-    bag: {
-      name: 'Bag',
-      image: '/api/placeholder/350/350',
-      printAreas: {
-        'front': { x: 75, y: 100, width: 200, height: 150, name: 'Front Panel' }
-      },
-      colors: ['#000000', '#8B4513', '#ffffff', '#ff0000', '#0000ff']
-    },
-    magnet: {
-      name: 'Magnet',
-      image: '/api/placeholder/200/200',
-      printAreas: {
-        'full': { x: 25, y: 25, width: 150, height: 150, name: 'Full Surface' }
-      },
-      colors: ['#ffffff', '#000000', '#ff0000', '#0000ff']
-    },
-    notebook: {
-      name: 'Notebook',
-      image: '/api/placeholder/300/400',
-      printAreas: {
-        'cover': { x: 50, y: 50, width: 200, height: 100, name: 'Cover' }
-      },
-      colors: ['#000000', '#8B4513', '#0000ff', '#ff0000']
-    },
-    chicup: {
-      name: 'Chi Cup',
-      image: '/api/placeholder/250/300',
-      printAreas: {
-        'wrap': { x: 50, y: 100, width: 150, height: 100, name: 'Wrap Around' }
-      },
-      colors: ['#ffffff', '#000000', '#ff0000', '#0000ff']
-    },
-    waterbottle: {
-      name: 'Water Bottle',
-      image: '/api/placeholder/200/400',
-      printAreas: {
-        'label': { x: 50, y: 150, width: 100, height: 100, name: 'Label Area' }
-      },
-      colors: ['#ffffff', '#000000', '#0000ff', '#ff0000', '#00ff00']
-    },
-    cable: {
-      name: 'Xoopar Charging Cable',
-      image: '/api/placeholder/300/150',
-      printAreas: {
-        'connector': { x: 100, y: 50, width: 100, height: 50, name: 'Connector' }
-      },
-      colors: ['#000000', '#ffffff', '#ff0000', '#0000ff']
-    }
-  };
+  // Get current product configuration
+  const currentProduct = productsConfig[selectedProduct];
+  const currentPrintArea = currentProduct?.printAreas[printArea] || Object.values(currentProduct?.printAreas || {})[0];
 
   // Initialize canvas
   useEffect(() => {
     if (canvasRef.current && !canvas) {
       const fabricCanvas = new fabric.Canvas(canvasRef.current, {
         width: 800,
-        height: 600,
+        height: 800,
         backgroundColor: '#f8f9fa'
       });
-
-      // Add watermark
-      if (watermarkVisible && !user) {
-        addWatermark(fabricCanvas);
-      }
 
       setCanvas(fabricCanvas);
 
@@ -136,59 +66,122 @@ const Designer = () => {
         fabricCanvas.dispose();
       };
     }
-  }, []);
-
-  // Check authentication state
-  useEffect(() => {
-    // Handle both real Supabase and mock auth systems
-    const authResponse = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user || null);
-      if (session?.user && canvas) {
-        removeWatermark();
-      } else if (!session?.user && canvas) {
-        addWatermark(canvas);
-      }
-    });
-
-    // Extract subscription - handle both formats
-    const subscription = authResponse?.data?.subscription || authResponse;
-
-    return () => {
-      if (subscription && typeof subscription.unsubscribe === 'function') {
-        subscription.unsubscribe();
-      }
-    };
   }, [canvas]);
 
-  // Add watermark to canvas
-  const addWatermark = (fabricCanvas) => {
-    const watermark = new fabric.Text('PROMO GIFTS - SIGN IN TO REMOVE WATERMARK', {
-      left: 400,
-      top: 300,
-      fontSize: 24,
-      fill: 'rgba(255, 0, 0, 0.3)',
-      angle: -45,
-      selectable: false,
-      evented: false,
-      id: 'watermark'
-    });
-    fabricCanvas.add(watermark);
-    fabricCanvas.renderAll();
-  };
+  // Load product template when product or color changes
+  useEffect(() => {
+    if (canvas && currentProduct) {
+      loadProductTemplate();
+    }
+  }, [canvas, selectedProduct, selectedColor]);
 
-  // Remove watermark from canvas
-  const removeWatermark = () => {
-    if (canvas) {
-      const objects = canvas.getObjects();
-      const watermark = objects.find(obj => obj.id === 'watermark');
-      if (watermark) {
-        canvas.remove(watermark);
-        canvas.renderAll();
-      }
+  // Update print area when selection changes
+  useEffect(() => {
+    if (canvas && currentPrintArea) {
+      updatePrintAreaOverlay();
+    }
+  }, [canvas, printArea, selectedProduct]);
+
+  const loadProductTemplate = async () => {
+    if (!canvas || !currentProduct) return;
+
+    setTemplateLoaded(false);
+    
+    try {
+      // Clear canvas
+      canvas.clear();
+      
+      // Load template image
+      const templateUrl = currentProduct.template;
+      
+      fabric.Image.fromURL(templateUrl, (img) => {
+        if (img) {
+          // Scale image to fit canvas
+          img.scaleToWidth(800);
+          img.scaleToHeight(800);
+          img.set({
+            left: 0,
+            top: 0,
+            selectable: false,
+            evented: false,
+            excludeFromExport: false
+          });
+          
+          canvas.add(img);
+          canvas.sendToBack(img);
+          
+          // Apply color tint if needed (for products that support color changes)
+          if (selectedColor !== '#ffffff' && currentProduct.colors.includes(selectedColor)) {
+            img.set('fill', selectedColor);
+          }
+          
+          setTemplateLoaded(true);
+          updatePrintAreaOverlay();
+          canvas.renderAll();
+        }
+      }, {
+        crossOrigin: 'anonymous'
+      });
+      
+    } catch (error) {
+      console.error('Error loading template:', error);
+      setTemplateLoaded(true); // Still allow design even if template fails
     }
   };
 
-  // Authentication functions
+  const updatePrintAreaOverlay = () => {
+    if (!canvas || !currentPrintArea) return;
+
+    // Remove existing print area overlay
+    const existingOverlay = canvas.getObjects().find(obj => obj.id === 'printAreaOverlay');
+    if (existingOverlay) {
+      canvas.remove(existingOverlay);
+    }
+
+    // Create print area overlay
+    const overlay = new fabric.Rect({
+      left: currentPrintArea.x,
+      top: currentPrintArea.y,
+      width: currentPrintArea.width,
+      height: currentPrintArea.height,
+      fill: 'rgba(0, 123, 255, 0.1)',
+      stroke: '#007bff',
+      strokeWidth: 2,
+      strokeDashArray: [5, 5],
+      selectable: false,
+      evented: false,
+      excludeFromExport: true,
+      id: 'printAreaOverlay'
+    });
+
+    canvas.add(overlay);
+    canvas.bringToFront(overlay);
+    canvas.renderAll();
+  };
+
+  // Check user authentication
+  useEffect(() => {
+    const checkUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setUser(user);
+      } catch (error) {
+        console.error('Error checking user:', error);
+      }
+    };
+
+    checkUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user || null);
+      if (event === 'SIGNED_IN') {
+        setShowAuth(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -197,489 +190,543 @@ const Designer = () => {
       if (authMode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({
           email,
-          password
+          password,
         });
         if (error) throw error;
       } else {
         const { error } = await supabase.auth.signUp({
           email,
-          password
+          password,
         });
         if (error) throw error;
-        if (!isMockAuth) {
-          alert('Check your email for verification link!');
-        }
+        alert('Check your email for the confirmation link!');
       }
-      setShowAuth(false);
-      setEmail('');
-      setPassword('');
     } catch (error) {
-      alert(error.message || 'Authentication failed');
+      alert(error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
   };
 
-  // File upload handler
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const imgUrl = event.target.result;
-      
-      if (file.type.includes('svg')) {
-        fabric.loadSVGFromString(imgUrl).then((result) => {
-          const obj = fabric.util.groupSVGElements(result.objects, result.options);
-          obj.set({
-            left: 100,
-            top: 100,
-            scaleX: 0.5,
-            scaleY: 0.5
-          });
-          canvas.add(obj);
-          canvas.renderAll();
-        }).catch((error) => {
-          console.error('Error loading SVG:', error);
-        });
-      } else {
-        fabric.Image.fromURL(imgUrl).then((img) => {
-          img.set({
-            left: 100,
-            top: 100,
-            scaleX: 0.5,
-            scaleY: 0.5
-          });
-          canvas.add(img);
-          canvas.renderAll();
-        }).catch((error) => {
-          console.error('Error loading image:', error);
-        });
-      }
-    };
-
-    if (file.type.includes('svg')) {
-      reader.readAsText(file);
-    } else {
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Add text
   const addText = () => {
-    const text = new fabric.Text('Your Text Here', {
-      left: 100,
-      top: 100,
+    if (!canvas || !currentPrintArea) return;
+
+    const text = new fabric.IText('Your Text Here', {
+      left: currentPrintArea.x + currentPrintArea.width / 2,
+      top: currentPrintArea.y + currentPrintArea.height / 2,
+      fontFamily: 'Arial',
       fontSize: 24,
-      fill: '#000000'
+      fill: '#000000',
+      originX: 'center',
+      originY: 'center'
     });
+
     canvas.add(text);
+    canvas.setActiveObject(text);
     canvas.renderAll();
   };
 
-  // Add shapes
-  const addShape = (type) => {
+  const addShape = (shapeType) => {
+    if (!canvas || !currentPrintArea) return;
+
     let shape;
-    if (type === 'rectangle') {
+    const centerX = currentPrintArea.x + currentPrintArea.width / 2;
+    const centerY = currentPrintArea.y + currentPrintArea.height / 2;
+
+    if (shapeType === 'rectangle') {
       shape = new fabric.Rect({
-        left: 100,
-        top: 100,
+        left: centerX,
+        top: centerY,
         width: 100,
-        height: 100,
-        fill: '#ff0000'
+        height: 60,
+        fill: '#ff0000',
+        originX: 'center',
+        originY: 'center'
       });
-    } else if (type === 'circle') {
+    } else if (shapeType === 'circle') {
       shape = new fabric.Circle({
-        left: 100,
-        top: 100,
+        left: centerX,
+        top: centerY,
         radius: 50,
-        fill: '#00ff00'
+        fill: '#00ff00',
+        originX: 'center',
+        originY: 'center'
       });
     }
-    canvas.add(shape);
-    canvas.renderAll();
-  };
 
-  // Delete selected object
-  const deleteSelected = () => {
-    const activeObject = canvas.getActiveObject();
-    if (activeObject) {
-      canvas.remove(activeObject);
+    if (shape) {
+      canvas.add(shape);
+      canvas.setActiveObject(shape);
       canvas.renderAll();
     }
   };
 
-  // Rotate selected object
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file || !canvas || !currentPrintArea) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      fabric.Image.fromURL(event.target.result, (img) => {
+        // Scale image to fit within print area
+        const maxWidth = currentPrintArea.maxWidth || currentPrintArea.width;
+        const maxHeight = currentPrintArea.maxHeight || currentPrintArea.height;
+        
+        if (img.width > maxWidth || img.height > maxHeight) {
+          const scaleX = maxWidth / img.width;
+          const scaleY = maxHeight / img.height;
+          const scale = Math.min(scaleX, scaleY);
+          img.scale(scale);
+        }
+
+        img.set({
+          left: currentPrintArea.x + currentPrintArea.width / 2,
+          top: currentPrintArea.y + currentPrintArea.height / 2,
+          originX: 'center',
+          originY: 'center'
+        });
+
+        canvas.add(img);
+        canvas.setActiveObject(img);
+        canvas.renderAll();
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deleteSelected = () => {
+    if (!canvas) return;
+    const activeObjects = canvas.getActiveObjects();
+    activeObjects.forEach(obj => {
+      if (obj.id !== 'printAreaOverlay') {
+        canvas.remove(obj);
+      }
+    });
+    canvas.discardActiveObject();
+    canvas.renderAll();
+  };
+
   const rotateSelected = (direction) => {
+    if (!canvas) return;
     const activeObject = canvas.getActiveObject();
-    if (activeObject) {
+    if (activeObject && activeObject.id !== 'printAreaOverlay') {
       const currentAngle = activeObject.angle || 0;
       activeObject.rotate(currentAngle + (direction === 'left' ? -15 : 15));
       canvas.renderAll();
     }
   };
 
-  // Download as JPEG
-  const downloadJPEG = () => {
-    if (!user) {
-      alert('Please sign in to download without watermark');
-      return;
-    }
-
-    const dataURL = canvas.toDataURL({
-      format: 'jpeg',
-      quality: 0.9
-    });
-    
-    const link = document.createElement('a');
-    link.download = `design-${selectedProduct}-${Date.now()}.jpg`;
-    link.href = dataURL;
-    link.click();
-  };
-
-  // Download as PDF
-  const downloadPDF = () => {
-    if (!user) {
-      alert('Please sign in to download without watermark');
-      return;
-    }
-
-    const pdf = new jsPDF();
-    const imgData = canvas.toDataURL('image/jpeg', 0.9);
-    
-    pdf.addImage(imgData, 'JPEG', 10, 10, 190, 142);
-    pdf.save(`design-${selectedProduct}-${Date.now()}.pdf`);
-  };
-
-  // Update print area overlay
-  const updatePrintArea = () => {
+  const exportDesign = () => {
     if (!canvas) return;
 
-    // Remove existing print area guides
-    const objects = canvas.getObjects();
-    objects.forEach(obj => {
-      if (obj.id === 'print-area-guide') {
-        canvas.remove(obj);
-      }
+    // Hide print area overlay for export
+    const overlay = canvas.getObjects().find(obj => obj.id === 'printAreaOverlay');
+    if (overlay) {
+      overlay.set('visible', false);
+    }
+
+    // Hide watermark if needed
+    const watermark = canvas.getObjects().find(obj => obj.id === 'watermark');
+    if (watermark && !watermarkVisible) {
+      watermark.set('visible', false);
+    }
+
+    canvas.renderAll();
+
+    // Export as image
+    const dataURL = canvas.toDataURL({
+      format: 'png',
+      quality: 1,
+      multiplier: 1
     });
 
-    // Add new print area guide
-    const area = products[selectedProduct].printAreas[printArea];
-    if (area) {
-      const guide = new fabric.Rect({
-        left: area.x,
-        top: area.y,
-        width: area.width,
-        height: area.height,
-        fill: 'transparent',
-        stroke: '#ff0000',
-        strokeWidth: 2,
-        strokeDashArray: [5, 5],
-        selectable: false,
-        evented: false,
-        id: 'print-area-guide'
-      });
-      canvas.add(guide);
-      canvas.sendObjectToBack(guide);
-      canvas.renderAll();
+    // Create download link
+    const link = document.createElement('a');
+    link.download = `${currentProduct.name.toLowerCase().replace(/\s+/g, '-')}-design.png`;
+    link.href = dataURL;
+    link.click();
+
+    // Restore overlay visibility
+    if (overlay) {
+      overlay.set('visible', true);
+    }
+    if (watermark) {
+      watermark.set('visible', watermarkVisible);
+    }
+    canvas.renderAll();
+  };
+
+  const exportPDF = () => {
+    if (!canvas) return;
+
+    // Hide overlays for export
+    const overlay = canvas.getObjects().find(obj => obj.id === 'printAreaOverlay');
+    if (overlay) overlay.set('visible', false);
+
+    const watermark = canvas.getObjects().find(obj => obj.id === 'watermark');
+    if (watermark && !watermarkVisible) watermark.set('visible', false);
+
+    canvas.renderAll();
+
+    // Create PDF
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    pdf.addImage(imgData, 'PNG', 10, 10, 190, 190);
+    pdf.save(`${currentProduct.name.toLowerCase().replace(/\s+/g, '-')}-design.pdf`);
+
+    // Restore visibility
+    if (overlay) overlay.set('visible', true);
+    if (watermark) watermark.set('visible', watermarkVisible);
+    canvas.renderAll();
+  };
+
+  const saveDesign = async () => {
+    if (!canvas || !user) {
+      alert('Please sign in to save your design');
+      return;
+    }
+
+    try {
+      const designData = {
+        canvas_data: JSON.stringify(canvas.toJSON()),
+        product_type: selectedProduct,
+        product_color: selectedColor,
+        print_area: printArea,
+        user_id: user.id,
+        created_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('designs')
+        .insert([designData]);
+
+      if (error) throw error;
+      alert('Design saved successfully!');
+    } catch (error) {
+      console.error('Error saving design:', error);
+      alert('Error saving design. Please try again.');
     }
   };
 
-  useEffect(() => {
-    updatePrintArea();
-  }, [selectedProduct, printArea, canvas]);
+  // Get available print areas for current product
+  const availablePrintAreas = currentProduct ? Object.keys(currentProduct.printAreas) : [];
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center">
-              <div className="bg-red-500 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg mr-3">
-                PG
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Promo Gifts</h1>
-                <p className="text-sm text-red-600 font-semibold">Design Tool</p>
-              </div>
-            </div>
-
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <h1 className="text-2xl font-bold text-gray-900">Design Studio</h1>
+            
             <div className="flex items-center space-x-4">
               {user ? (
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">Welcome, {user.email}</span>
+                  <User className="w-5 h-5" />
+                  <span className="text-sm text-gray-600">{user.email}</span>
                   <button
-                    onClick={handleLogout}
-                    className="flex items-center space-x-1 text-red-600 hover:text-red-700"
+                    onClick={handleSignOut}
+                    className="flex items-center space-x-1 px-3 py-1 text-sm text-red-600 hover:text-red-800"
                   >
-                    <LogOut className="h-4 w-4" />
-                    <span>Logout</span>
+                    <LogOut className="w-4 h-4" />
+                    <span>Sign Out</span>
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={() => setShowAuth(true)}
-                  className="flex items-center space-x-1 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                  className="flex items-center space-x-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                 >
-                  <LogIn className="h-4 w-4" />
+                  <LogIn className="w-4 h-4" />
                   <span>Sign In</span>
                 </button>
               )}
             </div>
           </div>
         </div>
-      </header>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-12 gap-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Left Sidebar - Product Selection */}
-          <div className="col-span-3 bg-white rounded-lg shadow p-4">
-            <h3 className="font-bold text-lg mb-4">Select Product</h3>
-            <div className="space-y-2">
-              {Object.entries(products).map(([key, product]) => (
-                <button
-                  key={key}
-                  onClick={() => setSelectedProduct(key)}
-                  className={`w-full text-left p-3 rounded border ${
-                    selectedProduct === key
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  {product.name}
-                </button>
-              ))}
-            </div>
-
-            {/* Color Selection */}
-            <div className="mt-6">
-              <h4 className="font-semibold mb-3">Product Color</h4>
-              <div className="grid grid-cols-4 gap-2">
-                {products[selectedProduct].colors.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setSelectedColor(color)}
-                    className={`w-8 h-8 rounded border-2 ${
-                      selectedColor === color ? 'border-gray-800' : 'border-gray-300'
-                    }`}
-                    style={{ backgroundColor: color }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Print Area Selection */}
-            <div className="mt-6">
-              <h4 className="font-semibold mb-3">Print Area</h4>
-              <div className="space-y-2">
-                {Object.entries(products[selectedProduct].printAreas).map(([key, area]) => (
-                  <button
-                    key={key}
-                    onClick={() => setPrintArea(key)}
-                    className={`w-full text-left p-2 rounded text-sm ${
-                      printArea === key
-                        ? 'bg-red-500 text-white'
-                        : 'bg-gray-100 hover:bg-gray-200'
-                    }`}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-lg font-semibold mb-4">Product</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Product
+                  </label>
+                  <select
+                    value={selectedProduct}
+                    onChange={(e) => setSelectedProduct(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {area.name}
-                  </button>
-                ))}
+                    {Object.entries(productsConfig).map(([key, product]) => (
+                      <option key={key} value={key}>
+                        {product.name} - ${product.basePrice}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {currentProduct && currentProduct.colors.length > 1 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Color
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {currentProduct.colors.map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => setSelectedColor(color)}
+                          className={`w-8 h-8 rounded-full border-2 ${
+                            selectedColor === color ? 'border-blue-500' : 'border-gray-300'
+                          }`}
+                          style={{ backgroundColor: color }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {availablePrintAreas.length > 1 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Print Area
+                    </label>
+                    <select
+                      value={printArea}
+                      onChange={(e) => setPrintArea(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {availablePrintAreas.map((area) => (
+                        <option key={area} value={area}>
+                          {currentProduct.printAreas[area].name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* Center - Canvas */}
-          <div className="col-span-6 bg-white rounded-lg shadow p-4">
-            <div className="mb-4 flex justify-between items-center">
-              <h3 className="font-bold text-lg">Design Canvas</h3>
-              <div className="flex items-center space-x-2">
-                {!user && (
-                  <div className="flex items-center space-x-1 text-sm text-red-600">
-                    <EyeOff className="h-4 w-4" />
-                    <span>Watermarked Preview</span>
-                  </div>
-                )}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Design Canvas</h3>
+                <div className="text-sm text-gray-500">
+                  {templateLoaded ? 'Template Loaded' : 'Loading Template...'}
+                </div>
               </div>
-            </div>
-            
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-              <canvas ref={canvasRef} className="border border-gray-200 rounded" />
-            </div>
-
-            {/* Canvas Controls */}
-            <div className="mt-4 flex justify-center space-x-2">
-              <button
-                onClick={() => rotateSelected('left')}
-                className="p-2 bg-gray-100 rounded hover:bg-gray-200"
-                title="Rotate Left"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => rotateSelected('right')}
-                className="p-2 bg-gray-100 rounded hover:bg-gray-200"
-                title="Rotate Right"
-              >
-                <RotateCw className="h-4 w-4" />
-              </button>
-              <button
-                onClick={deleteSelected}
-                className="p-2 bg-red-100 text-red-600 rounded hover:bg-red-200"
-                title="Delete Selected"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+              
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <canvas ref={canvasRef} />
+              </div>
             </div>
           </div>
 
           {/* Right Sidebar - Tools */}
-          <div className="col-span-3 bg-white rounded-lg shadow p-4">
-            <h3 className="font-bold text-lg mb-4">Design Tools</h3>
-            
-            {/* File Upload */}
-            <div className="mb-6">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center space-x-2 p-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400"
-              >
-                <Upload className="h-5 w-5" />
-                <span>Upload Design</span>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".png,.jpg,.jpeg,.svg,.pdf,.ai"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Supports: PNG, JPEG, SVG, PDF, AI, Corel Draw
-              </p>
-            </div>
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-lg font-semibold mb-4">Tools</h3>
+              
+              <div className="space-y-4">
+                {/* Add Elements */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Add Elements</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={addText}
+                      className="flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                    >
+                      <Type className="w-4 h-4" />
+                      <span>Text</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => addShape('rectangle')}
+                      className="flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                    >
+                      <Square className="w-4 h-4" />
+                      <span>Rect</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => addShape('circle')}
+                      className="flex items-center justify-center space-x-1 px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
+                    >
+                      <Circle className="w-4 h-4" />
+                      <span>Circle</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center justify-center space-x-1 px-3 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Image</span>
+                    </button>
+                  </div>
+                  
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                  />
+                </div>
 
-            {/* Add Elements */}
-            <div className="mb-6">
-              <h4 className="font-semibold mb-3">Add Elements</h4>
-              <div className="space-y-2">
-                <button
-                  onClick={addText}
-                  className="w-full flex items-center space-x-2 p-2 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
-                >
-                  <Type className="h-4 w-4" />
-                  <span>Add Text</span>
-                </button>
-                <button
-                  onClick={() => addShape('rectangle')}
-                  className="w-full flex items-center space-x-2 p-2 bg-green-50 text-green-700 rounded hover:bg-green-100"
-                >
-                  <Square className="h-4 w-4" />
-                  <span>Add Rectangle</span>
-                </button>
-                <button
-                  onClick={() => addShape('circle')}
-                  className="w-full flex items-center space-x-2 p-2 bg-purple-50 text-purple-700 rounded hover:bg-purple-100"
-                >
-                  <Circle className="h-4 w-4" />
-                  <span>Add Circle</span>
-                </button>
-              </div>
-            </div>
+                {/* Transform Tools */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Transform</h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => rotateSelected('left')}
+                      className="flex items-center justify-center px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                    
+                    <button
+                      onClick={() => rotateSelected('right')}
+                      className="flex items-center justify-center px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                    >
+                      <RotateCw className="w-4 h-4" />
+                    </button>
+                    
+                    <button
+                      onClick={deleteSelected}
+                      className="flex items-center justify-center px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
 
-            {/* Download Options */}
-            <div className="mb-6">
-              <h4 className="font-semibold mb-3">Download</h4>
-              <div className="space-y-2">
-                <button
-                  onClick={downloadJPEG}
-                  className="w-full flex items-center space-x-2 p-2 bg-orange-50 text-orange-700 rounded hover:bg-orange-100"
-                >
-                  <FileImage className="h-4 w-4" />
-                  <span>Download JPEG</span>
-                </button>
-                <button
-                  onClick={downloadPDF}
-                  className="w-full flex items-center space-x-2 p-2 bg-red-50 text-red-700 rounded hover:bg-red-100"
-                >
-                  <FileText className="h-4 w-4" />
-                  <span>Download PDF</span>
-                </button>
+                {/* Export Tools */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Export</h4>
+                  <div className="space-y-2">
+                    <button
+                      onClick={exportDesign}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      <FileImage className="w-4 h-4" />
+                      <span>Export PNG</span>
+                    </button>
+                    
+                    <button
+                      onClick={exportPDF}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>Export PDF</span>
+                    </button>
+                    
+                    <button
+                      onClick={saveDesign}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>Save Design</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Watermark Toggle */}
+                <div>
+                  <button
+                    onClick={() => setWatermarkVisible(!watermarkVisible)}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                  >
+                    {watermarkVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    <span>{watermarkVisible ? 'Hide' : 'Show'} Watermark</span>
+                  </button>
+                </div>
               </div>
-              {!user && (
-                <p className="text-xs text-red-500 mt-2">
-                  Sign in to download without watermark
-                </p>
-              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Authentication Modal */}
+      {/* Auth Modal */}
       {showAuth && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
-            <h3 className="text-xl font-bold mb-4">
-              {authMode === 'login' ? 'Sign In' : 'Sign Up'}
-            </h3>
-            
+          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">
+                {authMode === 'login' ? 'Sign In' : 'Sign Up'}
+              </h2>
+              <button
+                onClick={() => setShowAuth(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ×
+              </button>
+            </div>
+
             <form onSubmit={handleAuth} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email
+                </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium mb-1">Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Password
+                </label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
-              
+
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600 disabled:opacity-50"
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
               >
                 {loading ? 'Loading...' : (authMode === 'login' ? 'Sign In' : 'Sign Up')}
               </button>
             </form>
-            
+
             <div className="mt-4 text-center">
               <button
                 onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
-                className="text-blue-600 hover:text-blue-700 text-sm"
+                className="text-blue-600 hover:text-blue-800 text-sm"
               >
-                {authMode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+                {authMode === 'login' 
+                  ? "Don't have an account? Sign up" 
+                  : "Already have an account? Sign in"
+                }
               </button>
             </div>
-            
-            <button
-              onClick={() => setShowAuth(false)}
-              className="mt-4 w-full text-gray-600 hover:text-gray-700 text-sm"
-            >
-              Cancel
-            </button>
           </div>
         </div>
       )}
