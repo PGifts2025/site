@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import * as fabric from 'fabric';
 import { jsPDF } from 'jspdf';
@@ -172,6 +173,7 @@ const Designer = () => {
 
     checkUser();
 
+    // Fixed: In Supabase v2, onAuthStateChange returns the subscription directly
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user || null);
       if (event === 'SIGNED_IN') {
@@ -179,7 +181,11 @@ const Designer = () => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
 
   const handleAuth = async (e) => {
