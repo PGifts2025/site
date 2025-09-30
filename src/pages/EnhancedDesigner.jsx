@@ -1,7 +1,7 @@
 
 
 import React, { useState, useRef, useEffect } from 'react';
-import * as fabric from 'fabric';
+import { fabric } from 'fabric';
 import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseConfig, isMockAuth } from '../config/supabase';
@@ -249,9 +249,20 @@ const EnhancedDesigner = () => {
       // Load template image
       const templateUrl = currentProduct.template;
       console.log(`Loading template for ${selectedProduct}:`, templateUrl);
+      console.log('Full template URL:', templateUrl);
+      console.log('Current product:', currentProduct);
       
-      fabric.Image.fromURL(templateUrl, (img) => {
+      // Fix template path - ensure it starts with proper path
+      const fixedTemplateUrl = templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`;
+      console.log('Fixed template URL:', fixedTemplateUrl);
+      
+      fabric.Image.fromURL(fixedTemplateUrl, (img) => {
+        console.log('Image.fromURL callback called with img:', img);
+        console.log('Canvas state:', canvas);
+        
         if (img && canvas) {
+          console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
+          
           // Scale image to fit canvas
           img.scaleToWidth(800);
           img.scaleToHeight(800);
@@ -276,12 +287,17 @@ const EnhancedDesigner = () => {
           console.log(`Template loaded successfully for ${selectedProduct}`);
           canvas.renderAll();
         } else {
-          console.warn('Failed to load template image, creating fallback');
+          console.error('Failed to load template image - img:', img, 'canvas:', canvas);
+          console.error('Template URL that failed:', fixedTemplateUrl);
           // Create a fallback template if image fails to load
           createFallbackTemplate();
         }
       }, {
         crossOrigin: 'anonymous'
+      }).catch((error) => {
+        console.error('Image.fromURL promise rejected:', error);
+        console.error('Failed URL:', fixedTemplateUrl);
+        createFallbackTemplate();
       });
       
     } catch (error) {
