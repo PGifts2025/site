@@ -223,11 +223,32 @@ const EnhancedDesigner = () => {
         return;
       }
 
-      // Clear canvas safely
-      canvas.clear();
+      // Clear canvas safely with proper context check
+      try {
+        if (canvas && canvas.getContext && canvas.clear) {
+          canvas.clear();
+        } else if (canvas && canvas.getObjects) {
+          // Alternative clearing method for fabric.js
+          canvas.getObjects().forEach(obj => canvas.remove(obj));
+        }
+      } catch (clearError) {
+        console.warn('Canvas clear failed, using alternative method:', clearError);
+        // Fallback: remove all objects individually
+        if (canvas && canvas.getObjects) {
+          const objects = canvas.getObjects().slice(); // Create copy to avoid mutation during iteration
+          objects.forEach(obj => {
+            try {
+              canvas.remove(obj);
+            } catch (removeError) {
+              console.warn('Failed to remove object:', removeError);
+            }
+          });
+        }
+      }
       
       // Load template image
       const templateUrl = currentProduct.template;
+      console.log(`Loading template for ${selectedProduct}:`, templateUrl);
       
       fabric.Image.fromURL(templateUrl, (img) => {
         if (img && canvas) {
@@ -252,10 +273,12 @@ const EnhancedDesigner = () => {
           }
           
           setTemplateLoaded(true);
+          console.log(`Template loaded successfully for ${selectedProduct}`);
           canvas.renderAll();
         } else {
-          console.warn('Failed to load template image');
-          setTemplateLoaded(true);
+          console.warn('Failed to load template image, creating fallback');
+          // Create a fallback template if image fails to load
+          createFallbackTemplate();
         }
       }, {
         crossOrigin: 'anonymous'
@@ -263,7 +286,53 @@ const EnhancedDesigner = () => {
       
     } catch (error) {
       console.error('Error loading template:', error);
-      setTemplateLoaded(true); // Still allow design even if template fails
+      createFallbackTemplate();
+    }
+  };
+
+  const createFallbackTemplate = () => {
+    if (!canvas || !currentProduct) return;
+    
+    try {
+      // Create a simple colored rectangle as fallback template
+      const fallbackTemplate = new fabric.Rect({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 800,
+        fill: selectedColor || '#f0f0f0',
+        stroke: '#cccccc',
+        strokeWidth: 2,
+        selectable: false,
+        evented: false,
+        excludeFromExport: false,
+        id: 'productTemplate'
+      });
+      
+      canvas.add(fallbackTemplate);
+      canvas.sendToBack(fallbackTemplate);
+      
+      // Add product name text as visual indicator
+      const productLabel = new fabric.Text(`${currentProduct.name} Template`, {
+        left: 400,
+        top: 50,
+        fontSize: 24,
+        fill: '#666666',
+        textAlign: 'center',
+        originX: 'center',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true,
+        id: 'productLabel'
+      });
+      
+      canvas.add(productLabel);
+      setTemplateLoaded(true);
+      console.log(`Fallback template created for ${selectedProduct}`);
+      canvas.renderAll();
+    } catch (fallbackError) {
+      console.error('Failed to create fallback template:', fallbackError);
+      setTemplateLoaded(true);
     }
   };
 
