@@ -66,8 +66,12 @@ const PrintAreaAdmin = ({
 
         // Enable object controls
         fabricCanvas.on('object:modified', handleObjectModified);
+        fabricCanvas.on('object:moving', handleObjectMoving);
         fabricCanvas.on('object:selected', handleObjectSelected);
         fabricCanvas.on('selection:cleared', handleSelectionCleared);
+        
+        // Add mouse up handler to ensure objects are released
+        fabricCanvas.on('mouse:up', handleMouseUp);
 
         fabricCanvasRef.current = fabricCanvas;
         setCanvas(fabricCanvas);
@@ -78,7 +82,16 @@ const PrintAreaAdmin = ({
     } else if (!canvasElement && fabricCanvasRef.current) {
       // Cleanup when element is unmounted
       console.log('[PrintAreaAdmin] Disposing canvas');
-      fabricCanvasRef.current.dispose();
+      const fabricCanvas = fabricCanvasRef.current;
+      
+      // Remove all event listeners before disposing
+      fabricCanvas.off('object:modified', handleObjectModified);
+      fabricCanvas.off('object:moving', handleObjectMoving);
+      fabricCanvas.off('object:selected', handleObjectSelected);
+      fabricCanvas.off('selection:cleared', handleSelectionCleared);
+      fabricCanvas.off('mouse:up', handleMouseUp);
+      
+      fabricCanvas.dispose();
       fabricCanvasRef.current = null;
       setCanvas(null);
     }
@@ -274,6 +287,32 @@ const PrintAreaAdmin = ({
     canvas.renderAll();
   };
 
+  const handleObjectMoving = (e) => {
+    if (!canvas) return;
+    
+    const obj = e.target;
+    if (obj.type === 'printArea') {
+      const key = obj.printAreaKey;
+      
+      // Update label position during move
+      const label = canvas.getObjects().find(o => o.id === `printAreaLabel_${key}`);
+      if (label) {
+        label.set({
+          left: obj.left + 5,
+          top: obj.top - 25
+        });
+      }
+      
+      // Apply snap to grid if enabled
+      if (snapToGrid) {
+        obj.set({
+          left: Math.round(obj.left / gridSize) * gridSize,
+          top: Math.round(obj.top / gridSize) * gridSize
+        });
+      }
+    }
+  };
+
   const handleObjectModified = (e) => {
     const obj = e.target;
     if (obj.type === 'printArea') {
@@ -311,6 +350,17 @@ const PrintAreaAdmin = ({
       });
 
       canvas.renderAll();
+    }
+  };
+
+  const handleMouseUp = (e) => {
+    // Ensure any active object is properly released
+    if (canvas) {
+      const activeObject = canvas.getActiveObject();
+      if (activeObject && activeObject.type === 'printArea') {
+        // Force a re-render to ensure the object is in the correct state
+        canvas.renderAll();
+      }
     }
   };
 
