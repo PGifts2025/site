@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import * as fabric from 'fabric';
+import { fabric } from 'fabric';
 import { 
   Settings, 
   Save, 
@@ -50,26 +50,36 @@ const PrintAreaAdmin = ({
 
   // Initialize canvas
   useEffect(() => {
+    console.log('[PrintAreaAdmin] Canvas init useEffect - canvasRef.current:', canvasRef.current, 'canvas:', canvas);
     if (canvasRef.current && !canvas) {
-      const fabricCanvas = new fabric.Canvas(canvasRef.current, {
-        width: 800,
-        height: 800,
-        backgroundColor: '#f8f9fa',
-        selection: true
-      });
+      console.log('[PrintAreaAdmin] Creating new Fabric canvas');
+      try {
+        const fabricCanvas = new fabric.Canvas(canvasRef.current, {
+          width: 800,
+          height: 800,
+          backgroundColor: '#f8f9fa',
+          selection: true
+        });
 
-      // Enable object controls
-      fabricCanvas.on('object:modified', handleObjectModified);
-      fabricCanvas.on('object:selected', handleObjectSelected);
-      fabricCanvas.on('selection:cleared', handleSelectionCleared);
+        console.log('[PrintAreaAdmin] Fabric canvas created:', fabricCanvas);
 
-      setCanvas(fabricCanvas);
+        // Enable object controls
+        fabricCanvas.on('object:modified', handleObjectModified);
+        fabricCanvas.on('object:selected', handleObjectSelected);
+        fabricCanvas.on('selection:cleared', handleSelectionCleared);
 
-      return () => {
-        fabricCanvas.dispose();
-      };
+        setCanvas(fabricCanvas);
+        console.log('[PrintAreaAdmin] Canvas state set');
+
+        return () => {
+          console.log('[PrintAreaAdmin] Disposing canvas');
+          fabricCanvas.dispose();
+        };
+      } catch (error) {
+        console.error('[PrintAreaAdmin] Error creating Fabric canvas:', error);
+      }
     }
-  }, [canvas]);
+  }, []); // Empty dependency array - run once on mount
 
   // Load product when selected
   useEffect(() => {
@@ -91,13 +101,19 @@ const PrintAreaAdmin = ({
   }, [canvas, showGrid, gridSize]);
 
   const loadProduct = async () => {
-    if (!canvas || !selectedProduct) return;
+    console.log('[PrintAreaAdmin] loadProduct called - canvas:', canvas, 'selectedProduct:', selectedProduct);
+    if (!canvas || !selectedProduct) {
+      console.log('[PrintAreaAdmin] loadProduct early return - missing canvas or product');
+      return;
+    }
 
     const product = productsConfig[selectedProduct];
+    console.log('[PrintAreaAdmin] Product config:', product);
     setCurrentProduct(product);
     setPrintAreas({ ...product.printAreas });
 
     // Clear canvas
+    console.log('[PrintAreaAdmin] Clearing canvas');
     canvas.clear();
 
     // Load template image
@@ -107,11 +123,12 @@ const PrintAreaAdmin = ({
       const templateUrl = product.template;
       const fixedTemplateUrl = templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`;
       
-      console.log('PrintAreaAdmin loading template:', fixedTemplateUrl);
+      console.log('[PrintAreaAdmin] Loading template:', fixedTemplateUrl);
       
       fabric.Image.fromURL(fixedTemplateUrl, (img) => {
+        console.log('[PrintAreaAdmin] Image.fromURL callback - img:', img);
         if (img && img._element) {
-          console.log('Template loaded successfully, dimensions:', img.width, 'x', img.height);
+          console.log('[PrintAreaAdmin] Template loaded successfully, dimensions:', img.width, 'x', img.height);
           
           // Scale image to fit canvas while maintaining aspect ratio
           const scale = Math.min(800 / img.width, 800 / img.height);
@@ -123,6 +140,8 @@ const PrintAreaAdmin = ({
           const centerX = (800 - scaledWidth) / 2;
           const centerY = (800 - scaledHeight) / 2;
           
+          console.log('[PrintAreaAdmin] Image scale:', scale, 'position:', centerX, centerY);
+          
           img.set({
             left: centerX,
             top: centerY,
@@ -132,15 +151,19 @@ const PrintAreaAdmin = ({
             id: 'productTemplate'
           });
           
+          console.log('[PrintAreaAdmin] Adding image to canvas');
           canvas.add(img);
           canvas.sendToBack(img);
+          
+          console.log('[PrintAreaAdmin] Canvas objects after add:', canvas.getObjects().length);
           
           // Load existing print areas
           loadPrintAreas();
           updateGridOverlay();
+          console.log('[PrintAreaAdmin] Calling canvas.renderAll()');
           canvas.renderAll();
         } else {
-          console.error('Failed to load template image in PrintAreaAdmin');
+          console.error('[PrintAreaAdmin] Failed to load template image - img:', img);
           // Still load print areas even if template fails
           loadPrintAreas();
           updateGridOverlay();
@@ -148,6 +171,7 @@ const PrintAreaAdmin = ({
         }
       });
     } else {
+      console.log('[PrintAreaAdmin] No template URL in product config');
       loadPrintAreas();
       updateGridOverlay();
     }
