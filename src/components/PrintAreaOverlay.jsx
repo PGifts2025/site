@@ -21,6 +21,19 @@ const PrintAreaOverlay = ({
       return;
     }
 
+    // Validate canvas context before proceeding
+    try {
+      const canvasElement = canvas.getElement?.();
+      const ctx = canvasElement?.getContext?.('2d');
+      if (!ctx) {
+        console.warn('Canvas context is not available for PrintAreaOverlay');
+        return;
+      }
+    } catch (error) {
+      console.warn('Error accessing canvas context:', error);
+      return;
+    }
+
     // Remove existing overlay
     const existingOverlay = canvas.getObjects().find(obj => obj.id === 'printAreaOverlay');
     if (existingOverlay) {
@@ -28,7 +41,11 @@ const PrintAreaOverlay = ({
     }
 
     if (!visible) {
-      canvas.renderAll();
+      try {
+        canvas.renderAll();
+      } catch (error) {
+        console.warn('Error rendering canvas:', error);
+      }
       return;
     }
 
@@ -101,20 +118,43 @@ const PrintAreaOverlay = ({
       console.warn('Could not move overlay objects to front:', error);
     }
     
-    canvas.renderAll();
+    // Safely render canvas with context validation
+    try {
+      const canvasElement = canvas.getElement?.();
+      const ctx = canvasElement?.getContext?.('2d');
+      if (ctx) {
+        canvas.renderAll();
+      } else {
+        console.warn('Canvas context unavailable during renderAll');
+      }
+    } catch (error) {
+      console.warn('Error rendering canvas:', error);
+    }
 
     // Cleanup function
     return () => {
       if (!canvas) return;
       
       try {
+        // Validate canvas context before cleanup
+        const canvasElement = canvas.getElement?.();
+        const ctx = canvasElement?.getContext?.('2d');
+        if (!ctx) {
+          console.warn('Canvas context unavailable during cleanup');
+          return;
+        }
+
         const overlayElements = canvas.getObjects().filter(obj => 
           obj.type === 'printAreaOverlay' || 
           obj.type === 'printAreaCorner' || 
           obj.id === 'printAreaLabel'
         );
         overlayElements.forEach(element => canvas.remove(element));
-        canvas.renderAll();
+        
+        // Safely render with context check
+        if (ctx) {
+          canvas.renderAll();
+        }
       } catch (error) {
         console.warn('Error cleaning up PrintAreaOverlay:', error);
       }
