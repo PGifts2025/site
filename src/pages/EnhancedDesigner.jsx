@@ -253,52 +253,65 @@ const EnhancedDesigner = () => {
       console.log('Current product:', currentProduct);
       
       // Fix template path - ensure it starts with proper path
+      // In Vite, public folder files are served from root, so /templates/bag/template.png is correct
       const fixedTemplateUrl = templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`;
       console.log('Fixed template URL:', fixedTemplateUrl);
       
-      fabric.Image.fromURL(fixedTemplateUrl, (img) => {
-        console.log('Image.fromURL callback called with img:', img);
-        console.log('Canvas state:', canvas);
+      // Create a new Image object to test if the file loads
+      const testImg = new Image();
+      testImg.onload = () => {
+        console.log('Test image loaded successfully, proceeding with fabric.Image.fromURL');
         
-        if (img && canvas) {
-          console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
+        // Now load with fabric.js - don't use crossOrigin for local files
+        fabric.Image.fromURL(fixedTemplateUrl, (img) => {
+          console.log('Image.fromURL callback called with img:', img);
+          console.log('Canvas state:', canvas);
           
-          // Scale image to fit canvas
-          img.scaleToWidth(800);
-          img.scaleToHeight(800);
-          img.set({
-            left: 0,
-            top: 0,
-            selectable: false,
-            evented: false,
-            excludeFromExport: false,
-            id: 'productTemplate'
-          });
-          
-          canvas.add(img);
-          canvas.sendToBack(img);
-          
-          // Apply color tint if needed (for products that support color changes)
-          if (selectedColor !== '#ffffff' && currentProduct.colors.includes(selectedColor)) {
-            img.set('fill', selectedColor);
+          if (img && img._element && canvas) {
+            console.log('Image loaded successfully, dimensions:', img.width, 'x', img.height);
+            
+            // Scale image to fit canvas while maintaining aspect ratio
+            const scale = Math.min(800 / img.width, 800 / img.height);
+            img.scale(scale);
+            
+            img.set({
+              left: 0,
+              top: 0,
+              selectable: false,
+              evented: false,
+              excludeFromExport: false,
+              id: 'productTemplate'
+            });
+            
+            canvas.add(img);
+            canvas.sendToBack(img);
+            
+            // Apply color tint if needed (for products that support color changes)
+            if (selectedColor !== '#ffffff' && currentProduct.colors.includes(selectedColor)) {
+              img.set('fill', selectedColor);
+            }
+            
+            setTemplateLoaded(true);
+            console.log(`Template loaded successfully for ${selectedProduct}`);
+            canvas.renderAll();
+          } else {
+            console.error('Failed to load template image - img:', img, 'canvas:', canvas);
+            console.error('Template URL that failed:', fixedTemplateUrl);
+            // Create a fallback template if image fails to load
+            createFallbackTemplate();
           }
-          
-          setTemplateLoaded(true);
-          console.log(`Template loaded successfully for ${selectedProduct}`);
-          canvas.renderAll();
-        } else {
-          console.error('Failed to load template image - img:', img, 'canvas:', canvas);
-          console.error('Template URL that failed:', fixedTemplateUrl);
-          // Create a fallback template if image fails to load
-          createFallbackTemplate();
-        }
-      }, {
-        crossOrigin: 'anonymous'
-      }).catch((error) => {
-        console.error('Image.fromURL promise rejected:', error);
+        });
+      };
+      
+      testImg.onerror = (error) => {
+        console.error('Test image failed to load:', error);
         console.error('Failed URL:', fixedTemplateUrl);
+        console.error('This might be a 404 or CORS issue');
         createFallbackTemplate();
-      });
+      };
+      
+      // Set the source to trigger loading
+      testImg.src = fixedTemplateUrl;
       
     } catch (error) {
       console.error('Error loading template:', error);
