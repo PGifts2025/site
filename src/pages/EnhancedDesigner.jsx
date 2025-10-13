@@ -245,9 +245,15 @@ const EnhancedDesigner = () => {
             const scale = Math.min(800 / img.width, 800 / img.height);
             img.scale(scale);
             
+            // Calculate centered position
+            const scaledWidth = img.width * scale;
+            const scaledHeight = img.height * scale;
+            const centerX = (800 - scaledWidth) / 2;
+            const centerY = (800 - scaledHeight) / 2;
+            
             img.set({
-              left: 0,
-              top: 0,
+              left: centerX,
+              top: centerY,
               selectable: false,
               evented: false,
               excludeFromExport: false,
@@ -294,12 +300,17 @@ const EnhancedDesigner = () => {
     if (!canvas || !currentProduct) return;
     
     try {
-      // Create a simple colored rectangle as fallback template
+      // Create a simple colored rectangle as fallback template (centered)
+      const templateWidth = 600;
+      const templateHeight = 600;
+      const centerX = (800 - templateWidth) / 2;
+      const centerY = (800 - templateHeight) / 2;
+      
       const fallbackTemplate = new fabric.Rect({
-        left: 0,
-        top: 0,
-        width: 800,
-        height: 800,
+        left: centerX,
+        top: centerY,
+        width: templateWidth,
+        height: templateHeight,
         fill: selectedColor || '#f0f0f0',
         stroke: '#cccccc',
         strokeWidth: 2,
@@ -312,10 +323,10 @@ const EnhancedDesigner = () => {
       canvas.add(fallbackTemplate);
       canvas.sendToBack(fallbackTemplate);
       
-      // Add product name text as visual indicator
+      // Add product name text as visual indicator (centered)
       const productLabel = new fabric.Text(`${currentProduct.name} Template`, {
         left: 400,
-        top: 50,
+        top: centerY + 20,
         fontSize: 24,
         fill: '#666666',
         textAlign: 'center',
@@ -361,10 +372,10 @@ const EnhancedDesigner = () => {
 
   // Load product template when product or color changes
   useEffect(() => {
-    if (canvas && currentProduct) {
+    if (canvas && currentProduct && !productsLoading) {
       loadProductTemplate();
     }
-  }, [canvas, selectedProduct, selectedColor]);
+  }, [canvas, selectedProduct, selectedColor, currentProduct, productsLoading]);
 
   // Check user authentication
   useEffect(() => {
@@ -978,7 +989,7 @@ const EnhancedDesigner = () => {
       {showPrintAreaAdmin && (
         <PrintAreaAdmin
           selectedProduct={selectedProduct}
-          productsConfig={productsConfig}
+          productsConfig={availableProducts}
           onSaveConfiguration={handleSaveConfiguration}
           onClose={() => setShowPrintAreaAdmin(false)}
         />
