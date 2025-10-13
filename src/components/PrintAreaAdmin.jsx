@@ -61,8 +61,13 @@ const PrintAreaAdmin = ({
 
   // Load product when selected
   useEffect(() => {
-    if (canvas && selectedProduct && productsConfig[selectedProduct]) {
+    if (canvas && selectedProduct && productsConfig && productsConfig[selectedProduct]) {
       loadProduct();
+    } else if (selectedProduct && productsConfig && productsConfig[selectedProduct]) {
+      // Set product info even before canvas is ready
+      const product = productsConfig[selectedProduct];
+      setCurrentProduct(product);
+      setPrintAreas({ ...product.printAreas });
     }
   }, [canvas, selectedProduct, productsConfig]);
 
