@@ -117,36 +117,6 @@ const EnhancedDesigner = () => {
     loadProducts();
   }, []);
 
-  // Initialize canvas
-  useEffect(() => {
-    if (canvasRef.current && !canvas) {
-      const fabricCanvas = new fabric.Canvas(canvasRef.current, {
-        width: 800,
-        height: 800,
-        backgroundColor: '#f8f9fa'
-      });
-
-      // Add event listeners for print area validation
-      fabricCanvas.on('object:moving', handleObjectMoving);
-      fabricCanvas.on('object:scaling', handleObjectScaling);
-      fabricCanvas.on('object:modified', handleObjectModified);
-      fabricCanvas.on('object:added', handleObjectAdded);
-
-      setCanvas(fabricCanvas);
-
-      return () => {
-        fabricCanvas.dispose();
-      };
-    }
-  }, [canvas]);
-
-  // Load product template when product or color changes
-  useEffect(() => {
-    if (canvas && currentProduct) {
-      loadProductTemplate();
-    }
-  }, [canvas, selectedProduct, selectedColor]);
-
   // Handle object movement validation
   const handleObjectMoving = (e) => {
     const obj = e.target;
@@ -223,19 +193,20 @@ const EnhancedDesigner = () => {
         return;
       }
 
-      // Clear canvas safely with proper context check
+      // Clear canvas safely - Fabric.js has a clear() method
       try {
-        if (canvas && canvas.getContext && canvas.clear) {
+        if (canvas && canvas.clear) {
           canvas.clear();
         } else if (canvas && canvas.getObjects) {
           // Alternative clearing method for fabric.js
-          canvas.getObjects().forEach(obj => canvas.remove(obj));
+          const objects = canvas.getObjects().slice(); // Create copy to avoid mutation during iteration
+          objects.forEach(obj => canvas.remove(obj));
         }
       } catch (clearError) {
         console.warn('Canvas clear failed, using alternative method:', clearError);
         // Fallback: remove all objects individually
         if (canvas && canvas.getObjects) {
-          const objects = canvas.getObjects().slice(); // Create copy to avoid mutation during iteration
+          const objects = canvas.getObjects().slice();
           objects.forEach(obj => {
             try {
               canvas.remove(obj);
@@ -364,6 +335,36 @@ const EnhancedDesigner = () => {
       setTemplateLoaded(true);
     }
   };
+
+  // Initialize canvas
+  useEffect(() => {
+    if (canvasRef.current && !canvas) {
+      const fabricCanvas = new fabric.Canvas(canvasRef.current, {
+        width: 800,
+        height: 800,
+        backgroundColor: '#f8f9fa'
+      });
+
+      // Add event listeners for print area validation
+      fabricCanvas.on('object:moving', handleObjectMoving);
+      fabricCanvas.on('object:scaling', handleObjectScaling);
+      fabricCanvas.on('object:modified', handleObjectModified);
+      fabricCanvas.on('object:added', handleObjectAdded);
+
+      setCanvas(fabricCanvas);
+
+      return () => {
+        fabricCanvas.dispose();
+      };
+    }
+  }, []);
+
+  // Load product template when product or color changes
+  useEffect(() => {
+    if (canvas && currentProduct) {
+      loadProductTemplate();
+    }
+  }, [canvas, selectedProduct, selectedColor]);
 
   // Check user authentication
   useEffect(() => {
