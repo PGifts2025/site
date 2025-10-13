@@ -418,10 +418,10 @@ const PrintAreaAdmin = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg max-w-7xl w-full h-full max-h-[90vh] mx-4 flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg w-full max-w-7xl" style={{ height: '90vh', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b">
+        <div className="flex justify-between items-center p-6 border-b flex-shrink-0">
           <div>
             <h2 className="text-2xl font-bold">Print Area Configuration</h2>
             <p className="text-gray-600">Product: {currentProduct.name}</p>
@@ -457,7 +457,7 @@ const PrintAreaAdmin = ({
           </div>
         </div>
 
-        <div className="flex flex-1 overflow-hidden min-h-0">
+        <div className="flex overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
           {/* Left Sidebar - Controls */}
           <div className="w-80 border-r p-6 overflow-y-auto flex-shrink-0">
             <div className="space-y-6">
@@ -651,7 +651,7 @@ const PrintAreaAdmin = ({
           </div>
 
           {/* Center - Canvas */}
-          <div className="flex-1 p-6 flex flex-col min-w-0 min-h-0">
+          <div className="p-6 overflow-auto" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             <div className="flex justify-between items-center mb-4 flex-shrink-0">
               <h3 className="text-lg font-semibold">Visual Configuration</h3>
               <div className="text-sm text-gray-500">
@@ -659,10 +659,8 @@ const PrintAreaAdmin = ({
               </div>
             </div>
             
-            <div className="flex-1 border border-gray-200 rounded-lg bg-white overflow-auto min-h-0 p-4">
-              <div style={{ width: '800px', height: '800px', margin: '0 auto' }}>
-                <canvas ref={canvasRef} width="800" height="800" />
-              </div>
+            <div className="border border-gray-200 rounded-lg bg-white p-4 flex-shrink-0" style={{ width: '800px', height: '800px' }}>
+              <canvas ref={canvasRef} width="800" height="800" />
             </div>
           </div>
         </div>
