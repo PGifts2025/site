@@ -1,6 +1,6 @@
 
 import React, { useEffect } from 'react';
-import * as fabric from 'fabric';
+import { fabric } from 'fabric';
 
 const PrintAreaOverlay = ({ 
   canvas, 
