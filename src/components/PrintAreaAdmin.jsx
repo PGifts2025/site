@@ -16,6 +16,18 @@ import {
   Ruler
 } from 'lucide-react';
 
+/**
+ * Print Area Admin Component
+ * 
+ * Design Intent:
+ * - Automatically loads the product template from the configured template path in products.json
+ * - Templates are stored in public/templates/{product-type}/template.png
+ * - The Visual Configuration canvas displays the template centered and scaled to fit
+ * - Print areas are shown as blue draggable/resizable rectangles overlaid on the template
+ * - Administrators can visually configure print areas by dragging and resizing
+ * - Changes are saved back to the product configuration
+ * - No manual template import is needed - it uses the template from the folder automatically
+ */
 const PrintAreaAdmin = ({ 
   selectedProduct, 
   productsConfig, 
@@ -90,13 +102,30 @@ const PrintAreaAdmin = ({
 
     // Load template image
     if (product.template) {
-      fabric.Image.fromURL(product.template, (img) => {
-        if (img) {
-          img.scaleToWidth(800);
-          img.scaleToHeight(800);
+      // Fix template path - ensure it starts with proper path
+      // In Vite, public folder files are served from root
+      const templateUrl = product.template;
+      const fixedTemplateUrl = templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`;
+      
+      console.log('PrintAreaAdmin loading template:', fixedTemplateUrl);
+      
+      fabric.Image.fromURL(fixedTemplateUrl, (img) => {
+        if (img && img._element) {
+          console.log('Template loaded successfully, dimensions:', img.width, 'x', img.height);
+          
+          // Scale image to fit canvas while maintaining aspect ratio
+          const scale = Math.min(800 / img.width, 800 / img.height);
+          img.scale(scale);
+          
+          // Calculate centered position
+          const scaledWidth = img.width * scale;
+          const scaledHeight = img.height * scale;
+          const centerX = (800 - scaledWidth) / 2;
+          const centerY = (800 - scaledHeight) / 2;
+          
           img.set({
-            left: 0,
-            top: 0,
+            left: centerX,
+            top: centerY,
             selectable: false,
             evented: false,
             excludeFromExport: true,
@@ -110,9 +139,13 @@ const PrintAreaAdmin = ({
           loadPrintAreas();
           updateGridOverlay();
           canvas.renderAll();
+        } else {
+          console.error('Failed to load template image in PrintAreaAdmin');
+          // Still load print areas even if template fails
+          loadPrintAreas();
+          updateGridOverlay();
+          canvas.renderAll();
         }
-      }, {
-        crossOrigin: 'anonymous'
       });
     } else {
       loadPrintAreas();
@@ -626,8 +659,8 @@ const PrintAreaAdmin = ({
               </div>
             </div>
             
-            <div className="flex-1 border border-gray-200 rounded-lg overflow-hidden bg-white">
-              <canvas ref={canvasRef} />
+            <div className="flex-1 border border-gray-200 rounded-lg overflow-hidden bg-white flex items-center justify-center">
+              <canvas ref={canvasRef} width="800" height="800" />
             </div>
           </div>
         </div>
