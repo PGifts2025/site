@@ -457,9 +457,9 @@ const PrintAreaAdmin = ({
           </div>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden min-h-0">
           {/* Left Sidebar - Controls */}
-          <div className="w-80 border-r p-6 overflow-y-auto">
+          <div className="w-80 border-r p-6 overflow-y-auto flex-shrink-0">
             <div className="space-y-6">
               {/* Grid Controls */}
               <div>
@@ -651,16 +651,18 @@ const PrintAreaAdmin = ({
           </div>
 
           {/* Center - Canvas */}
-          <div className="flex-1 p-6 flex flex-col">
-            <div className="flex justify-between items-center mb-4">
+          <div className="flex-1 p-6 flex flex-col min-w-0 min-h-0">
+            <div className="flex justify-between items-center mb-4 flex-shrink-0">
               <h3 className="text-lg font-semibold">Visual Configuration</h3>
               <div className="text-sm text-gray-500">
                 Drag and resize the blue rectangles to configure print areas
               </div>
             </div>
             
-            <div className="flex-1 border border-gray-200 rounded-lg overflow-hidden bg-white flex items-center justify-center">
-              <canvas ref={canvasRef} width="800" height="800" />
+            <div className="flex-1 border border-gray-200 rounded-lg bg-white overflow-auto min-h-0 p-4">
+              <div style={{ width: '800px', height: '800px', margin: '0 auto' }}>
+                <canvas ref={canvasRef} width="800" height="800" />
+              </div>
             </div>
           </div>
         </div>
