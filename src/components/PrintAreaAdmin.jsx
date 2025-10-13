@@ -288,14 +288,15 @@ const PrintAreaAdmin = ({
   };
 
   const handleObjectMoving = (e) => {
-    if (!canvas) return;
+    const fabricCanvas = fabricCanvasRef.current;
+    if (!fabricCanvas) return;
     
     const obj = e.target;
     if (obj.type === 'printArea') {
       const key = obj.printAreaKey;
       
       // Update label position during move
-      const label = canvas.getObjects().find(o => o.id === `printAreaLabel_${key}`);
+      const label = fabricCanvas.getObjects().find(o => o.id === `printAreaLabel_${key}`);
       if (label) {
         label.set({
           left: obj.left + 5,
@@ -310,10 +311,16 @@ const PrintAreaAdmin = ({
           top: Math.round(obj.top / gridSize) * gridSize
         });
       }
+      
+      // Render the canvas to show the label moving with the rectangle
+      fabricCanvas.renderAll();
     }
   };
 
   const handleObjectModified = (e) => {
+    const fabricCanvas = fabricCanvasRef.current;
+    if (!fabricCanvas) return;
+    
     const obj = e.target;
     if (obj.type === 'printArea') {
       const key = obj.printAreaKey;
@@ -333,7 +340,7 @@ const PrintAreaAdmin = ({
       }));
 
       // Update label position
-      const label = canvas.getObjects().find(o => o.id === `printAreaLabel_${key}`);
+      const label = fabricCanvas.getObjects().find(o => o.id === `printAreaLabel_${key}`);
       if (label) {
         label.set({
           left: obj.left + 5,
@@ -349,17 +356,18 @@ const PrintAreaAdmin = ({
         height: newArea.height
       });
 
-      canvas.renderAll();
+      fabricCanvas.renderAll();
     }
   };
 
   const handleMouseUp = (e) => {
     // Ensure any active object is properly released
-    if (canvas) {
-      const activeObject = canvas.getActiveObject();
+    const fabricCanvas = fabricCanvasRef.current;
+    if (fabricCanvas) {
+      const activeObject = fabricCanvas.getActiveObject();
       if (activeObject && activeObject.type === 'printArea') {
         // Force a re-render to ensure the object is in the correct state
-        canvas.renderAll();
+        fabricCanvas.renderAll();
       }
     }
   };
@@ -418,13 +426,16 @@ const PrintAreaAdmin = ({
     setPrintAreas(newPrintAreas);
 
     // Remove from canvas
-    const rect = canvas.getObjects().find(obj => obj.id === `printArea_${key}`);
-    const label = canvas.getObjects().find(obj => obj.id === `printAreaLabel_${key}`);
-    
-    if (rect) canvas.remove(rect);
-    if (label) canvas.remove(label);
-    
-    canvas.renderAll();
+    const fabricCanvas = fabricCanvasRef.current;
+    if (fabricCanvas) {
+      const rect = fabricCanvas.getObjects().find(obj => obj.id === `printArea_${key}`);
+      const label = fabricCanvas.getObjects().find(obj => obj.id === `printAreaLabel_${key}`);
+      
+      if (rect) fabricCanvas.remove(rect);
+      if (label) fabricCanvas.remove(label);
+      
+      fabricCanvas.renderAll();
+    }
   };
 
   const saveConfiguration = () => {
