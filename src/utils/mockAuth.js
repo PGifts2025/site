@@ -3,7 +3,24 @@
 
 class MockAuth {
   constructor() {
-    this.user = JSON.parse(localStorage.getItem('mockUser')) || null;
+    // Check if user exists in localStorage
+    let storedUser = JSON.parse(localStorage.getItem('mockUser'));
+    
+    // If no user exists, auto-create an admin user for testing
+    if (!storedUser) {
+      storedUser = {
+        id: 'mock-admin-user-id',
+        email: 'admin@example.com',
+        created_at: new Date().toISOString(),
+        user_metadata: {
+          is_admin: true
+        }
+      };
+      localStorage.setItem('mockUser', JSON.stringify(storedUser));
+      console.log('[MockAuth] Auto-created admin user for testing');
+    }
+    
+    this.user = storedUser;
     this.listeners = [];
   }
 
@@ -38,7 +55,10 @@ class MockAuth {
       const user = {
         id: 'mock-user-id',
         email,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        user_metadata: {
+          is_admin: true  // All mock users are admin for testing
+        }
       };
       
       this.user = user;
@@ -64,7 +84,10 @@ class MockAuth {
       const user = {
         id: 'mock-user-id',
         email,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        user_metadata: {
+          is_admin: true  // All mock users are admin for testing
+        }
       };
       
       this.user = user;
