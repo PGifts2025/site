@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { fabric } from 'fabric';
 import { 
   Settings, 
@@ -34,8 +34,8 @@ const PrintAreaAdmin = ({
   onSaveConfiguration,
   onClose 
 }) => {
-  const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
+  const fabricCanvasRef = useRef(null);
   const [canvas, setCanvas] = useState(null);
   const [currentProduct, setCurrentProduct] = useState(null);
   const [printAreas, setPrintAreas] = useState({});
@@ -48,13 +48,14 @@ const PrintAreaAdmin = ({
   const [newAreaName, setNewAreaName] = useState('');
   const [showNewAreaDialog, setShowNewAreaDialog] = useState(false);
 
-  // Initialize canvas
-  useEffect(() => {
-    console.log('[PrintAreaAdmin] Canvas init useEffect - canvasRef.current:', canvasRef.current, 'canvas:', canvas);
-    if (canvasRef.current && !canvas) {
+  // Callback ref to initialize canvas when element is mounted
+  const canvasRef = React.useCallback((canvasElement) => {
+    console.log('[PrintAreaAdmin] Canvas callback ref called - canvasElement:', canvasElement, 'current canvas:', canvas);
+    
+    if (canvasElement && !fabricCanvasRef.current) {
       console.log('[PrintAreaAdmin] Creating new Fabric canvas');
       try {
-        const fabricCanvas = new fabric.Canvas(canvasRef.current, {
+        const fabricCanvas = new fabric.Canvas(canvasElement, {
           width: 800,
           height: 800,
           backgroundColor: '#f8f9fa',
@@ -68,18 +69,20 @@ const PrintAreaAdmin = ({
         fabricCanvas.on('object:selected', handleObjectSelected);
         fabricCanvas.on('selection:cleared', handleSelectionCleared);
 
+        fabricCanvasRef.current = fabricCanvas;
         setCanvas(fabricCanvas);
         console.log('[PrintAreaAdmin] Canvas state set');
-
-        return () => {
-          console.log('[PrintAreaAdmin] Disposing canvas');
-          fabricCanvas.dispose();
-        };
       } catch (error) {
         console.error('[PrintAreaAdmin] Error creating Fabric canvas:', error);
       }
+    } else if (!canvasElement && fabricCanvasRef.current) {
+      // Cleanup when element is unmounted
+      console.log('[PrintAreaAdmin] Disposing canvas');
+      fabricCanvasRef.current.dispose();
+      fabricCanvasRef.current = null;
+      setCanvas(null);
     }
-  }, []); // Empty dependency array - run once on mount
+  }, []); // Empty dependency array - callback doesn't change
 
   // Load product when selected
   useEffect(() => {
