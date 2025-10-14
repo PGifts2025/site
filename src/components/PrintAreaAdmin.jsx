@@ -13,6 +13,7 @@ import {
   Loader
 } from 'lucide-react';
 import { useAuth } from './AuthProvider';
+import { supabaseConfig } from '../config/supabase';
 import { 
   saveProductConfiguration, 
   loadProductConfiguration, 
@@ -165,17 +166,33 @@ const PrintAreaAdmin = ({
     loadProductData();
   }, [selectedProduct, productsConfig]);
 
+  // Track previous template URL to prevent unnecessary reloads
+  const prevTemplateRef = useRef(null);
+
   // Load product into canvas when data and canvas are ready
   useEffect(() => {
     if (canvas && currentProduct) {
-      console.log('[PrintAreaAdmin] useEffect triggered - loading product, template:', currentProduct.template);
-      // Add a small delay to ensure canvas is fully ready
-      // Use a ref to track if we're loading to prevent race conditions
-      const timeoutId = setTimeout(() => {
-        loadProduct();
-      }, 100);
+      const currentTemplateUrl = currentProduct.template || '';
+      const prevTemplateUrl = prevTemplateRef.current || '';
       
-      return () => clearTimeout(timeoutId);
+      // Only reload if template URL actually changed
+      if (currentTemplateUrl !== prevTemplateUrl) {
+        console.log('[PrintAreaAdmin] Template URL changed, reloading product');
+        console.log('  Previous:', prevTemplateUrl);
+        console.log('  Current:', currentTemplateUrl);
+        
+        // Update ref before loading
+        prevTemplateRef.current = currentTemplateUrl;
+        
+        // Add a small delay to ensure canvas is fully ready
+        const timeoutId = setTimeout(() => {
+          loadProduct();
+        }, 100);
+        
+        return () => clearTimeout(timeoutId);
+      } else {
+        console.log('[PrintAreaAdmin] Template URL unchanged, skipping reload');
+      }
     }
   }, [canvas, currentProduct?.template]); // Only depend on template URL, not entire currentProduct object
 
@@ -577,48 +594,66 @@ const PrintAreaAdmin = ({
 
     console.log('[PrintAreaAdmin] Adding new print area:', key, newArea);
 
-    // Create fabric objects FIRST (synchronously)
-    const rect = new fabric.Rect({
-      left: newArea.x,
-      top: newArea.y,
-      width: newArea.width,
-      height: newArea.height,
-      fill: 'rgba(59, 130, 246, 0.2)',
-      stroke: '#3b82f6',
-      strokeWidth: 2,
-      strokeDashArray: [5, 5],
-      cornerColor: '#3b82f6',
-      cornerSize: 8,
-      transparentCorners: false,
-      id: `printArea_${key}`,
-      type: 'printArea',
-      printAreaKey: key,
-      printAreaName: newArea.name
+    // Update state FIRST - this is the critical change!
+    // By updating state first, we ensure that when loadPrintAreas is called,
+    // it has the complete set of areas to render
+    setPrintAreas(prevAreas => {
+      const updatedAreas = {
+        ...prevAreas,
+        [key]: newArea
+      };
+      
+      // Reload all print areas after state update completes
+      // Use requestAnimationFrame to ensure state has been committed
+      requestAnimationFrame(() => {
+        // Remove all existing print area objects and labels
+        const existingAreas = canvas.getObjects().filter(obj => 
+          obj.type === 'printArea' || obj.type === 'printAreaLabel'
+        );
+        existingAreas.forEach(area => canvas.remove(area));
+        
+        // Render all print areas including the new one
+        Object.entries(updatedAreas).forEach(([areaKey, area]) => {
+          const rect = new fabric.Rect({
+            left: area.x,
+            top: area.y,
+            width: area.width,
+            height: area.height,
+            fill: 'rgba(59, 130, 246, 0.2)',
+            stroke: '#3b82f6',
+            strokeWidth: 2,
+            strokeDashArray: [5, 5],
+            cornerColor: '#3b82f6',
+            cornerSize: 8,
+            transparentCorners: false,
+            id: `printArea_${areaKey}`,
+            type: 'printArea',
+            printAreaKey: areaKey,
+            printAreaName: area.name
+          });
+
+          const label = new fabric.Text(area.name, {
+            left: area.x + 5,
+            top: area.y - 25,
+            fontSize: 14,
+            fill: '#3b82f6',
+            fontWeight: 'bold',
+            selectable: false,
+            evented: false,
+            id: `printAreaLabel_${areaKey}`,
+            type: 'printAreaLabel'
+          });
+
+          canvas.add(rect);
+          canvas.add(label);
+        });
+        
+        canvas.renderAll();
+        console.log('[PrintAreaAdmin] All print areas re-rendered including new area:', key);
+      });
+      
+      return updatedAreas;
     });
-
-    const label = new fabric.Text(newArea.name, {
-      left: newArea.x + 5,
-      top: newArea.y - 25,
-      fontSize: 14,
-      fill: '#3b82f6',
-      fontWeight: 'bold',
-      selectable: false,
-      evented: false,
-      id: `printAreaLabel_${key}`,
-      type: 'printAreaLabel'
-    });
-
-    // Add to canvas immediately
-    canvas.add(rect);
-    canvas.add(label);
-    canvas.renderAll();
-    console.log('[PrintAreaAdmin] New print area rendered on canvas immediately');
-
-    // Update state AFTER canvas is updated (this prevents the useEffect from clearing it)
-    setPrintAreas(prevAreas => ({
-      ...prevAreas,
-      [key]: newArea
-    }));
 
     setNewAreaName('');
     setShowNewAreaDialog(false);
@@ -658,7 +693,7 @@ const PrintAreaAdmin = ({
     }
 
     setIsSaving(true);
-    setSaveMessage({ type: 'info', text: 'Saving configuration to database...' });
+    setSaveMessage({ type: 'info', text: 'Saving configuration to Supabase database...' });
 
     try {
       const updatedProduct = {
@@ -669,34 +704,47 @@ const PrintAreaAdmin = ({
         basePrice: currentProduct.basePrice
       };
 
-      console.log('[PrintAreaAdmin] Saving configuration:', {
+      console.log('[PrintAreaAdmin] Saving configuration to Supabase:', {
         productKey: selectedProduct,
         product: updatedProduct,
-        printAreasCount: Object.keys(printAreas).length
+        printAreasCount: Object.keys(printAreas).length,
+        database: supabaseConfig.url
       });
 
       // Save to Supabase database
       const result = await saveProductConfiguration(selectedProduct, updatedProduct);
       
-      console.log('[PrintAreaAdmin] Save successful, result:', result);
+      console.log('[PrintAreaAdmin] ✓ Successfully saved to Supabase database:', result);
 
       // Also call the parent callback if provided
       if (onSaveConfiguration) {
         onSaveConfiguration(selectedProduct, updatedProduct);
       }
 
+      // Show detailed success message
       setSaveMessage({ 
         type: 'success', 
-        text: `✓ Configuration saved successfully! Product: ${currentProduct.name}, Print Areas: ${Object.keys(printAreas).length}` 
+        text: `✓ Saved to Supabase! Product: ${currentProduct.name}, Print Areas: ${Object.keys(printAreas).length}, Database: ${supabaseConfig.url.substring(0, 30)}...` 
       });
 
-      // Clear success message after 5 seconds
-      setTimeout(() => setSaveMessage(null), 5000);
+      // Clear success message after 6 seconds
+      setTimeout(() => setSaveMessage(null), 6000);
     } catch (error) {
-      console.error('[PrintAreaAdmin] Error saving configuration:', error);
+      console.error('[PrintAreaAdmin] ✗ Error saving to Supabase:', error);
+      
+      // Provide detailed error message
+      let errorMessage = '✗ Failed to save to Supabase database. ';
+      if (error.message) {
+        errorMessage += `Error: ${error.message}. `;
+      }
+      if (error.code) {
+        errorMessage += `Code: ${error.code}. `;
+      }
+      errorMessage += 'Check browser console for full details.';
+      
       setSaveMessage({ 
         type: 'error', 
-        text: `✗ Failed to save: ${error.message || 'Unknown error'}. Check console for details.` 
+        text: errorMessage
       });
     } finally {
       setIsSaving(false);
@@ -773,10 +821,15 @@ const PrintAreaAdmin = ({
 
       // Update local state to trigger canvas refresh
       // Adding a timestamp to force React to detect the change
-      setCurrentProduct({
+      const newProduct = {
         ...updatedProduct,
         _uploadTimestamp: Date.now()  // Force state change detection
-      });
+      };
+      
+      // Update the prevTemplateRef to ensure the useEffect detects the change
+      prevTemplateRef.current = null;  // Reset to force reload
+      
+      setCurrentProduct(newProduct);
 
       // Clear the file input to allow re-uploading the same file if needed
       if (e.target) {
