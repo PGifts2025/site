@@ -57,6 +57,7 @@ const PrintAreaAdmin = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
+  const [lastSaved, setLastSaved] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminCheckLoading, setAdminCheckLoading] = useState(true);
 
@@ -514,8 +515,12 @@ const PrintAreaAdmin = ({
     const obj = e.target;
     if (obj.type === 'printArea') {
       const key = obj.printAreaKey;
+      const existingArea = printAreas[key];
+      
+      // Preserve ALL existing properties, especially the name
       const newArea = {
-        ...printAreas[key],
+        ...existingArea,
+        name: existingArea?.name || obj.printAreaName || key, // Explicitly preserve name
         x: Math.round(obj.left),
         y: Math.round(obj.top),
         width: Math.round(obj.width * obj.scaleX),
@@ -523,6 +528,8 @@ const PrintAreaAdmin = ({
         maxWidth: Math.round(obj.width * obj.scaleX),
         maxHeight: Math.round(obj.height * obj.scaleY)
       };
+      
+      console.log('[PrintAreaAdmin] Updating print area:', key, 'with name:', newArea.name);
 
       setPrintAreas(prev => ({
         ...prev,
@@ -721,14 +728,18 @@ const PrintAreaAdmin = ({
         onSaveConfiguration(selectedProduct, updatedProduct);
       }
 
-      // Show detailed success message
+      // Show detailed success message with longer timeout
+      const now = new Date();
+      const timestamp = now.toLocaleTimeString();
+      setLastSaved(now);
+      
       setSaveMessage({ 
         type: 'success', 
-        text: `✓ Saved to Supabase! Product: ${currentProduct.name}, Print Areas: ${Object.keys(printAreas).length}, Database: ${supabaseConfig.url.substring(0, 30)}...` 
+        text: `✓ Configuration saved successfully! Product: "${currentProduct.name}", Print Areas: ${Object.keys(printAreas).length}, Saved at: ${timestamp}` 
       });
 
-      // Clear success message after 6 seconds
-      setTimeout(() => setSaveMessage(null), 6000);
+      // Clear success message after 12 seconds (increased from 6)
+      setTimeout(() => setSaveMessage(null), 12000);
     } catch (error) {
       console.error('[PrintAreaAdmin] ✗ Error saving to Supabase:', error);
       
@@ -955,6 +966,12 @@ const PrintAreaAdmin = ({
             <div>
               <h2 className="text-2xl font-bold">Print Area Configuration</h2>
               <p className="text-gray-600">Product: {currentProduct.name}</p>
+              {lastSaved && (
+                <p className="text-sm text-green-600 mt-1 flex items-center">
+                  <CheckCircle className="w-3 h-3 mr-1" />
+                  Last saved: {lastSaved.toLocaleTimeString()}
+                </p>
+              )}
             </div>
             <div className="flex items-center space-x-2">
               <button
