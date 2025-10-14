@@ -308,7 +308,8 @@ export const createPrintArea = async (productTemplateId, printArea) => {
         width: printArea.width,
         height: printArea.height,
         max_width: printArea.maxWidth,
-        max_height: printArea.maxHeight
+        max_height: printArea.maxHeight,
+        shape: printArea.shape || 'rectangle'
       })
       .select()
       .single();
@@ -335,7 +336,7 @@ export const updatePrintArea = async (printAreaId, updates) => {
 
   try {
     const client = getSupabaseClient();
-    const { data, error } = await client
+    const { data, error} = await client
       .from('print_areas')
       .update({
         name: updates.name,
@@ -344,7 +345,8 @@ export const updatePrintArea = async (printAreaId, updates) => {
         width: updates.width,
         height: updates.height,
         max_width: updates.maxWidth,
-        max_height: updates.maxHeight
+        max_height: updates.maxHeight,
+        shape: updates.shape || 'rectangle'
       })
       .eq('id', printAreaId)
       .select()
@@ -453,7 +455,8 @@ export const batchUpdatePrintAreas = async (productTemplateId, printAreasConfig)
               width: areaData.width,
               height: areaData.height,
               max_width: areaData.maxWidth,
-              max_height: areaData.maxHeight
+              max_height: areaData.maxHeight,
+              shape: areaData.shape || 'rectangle'
             })
             .eq('id', existingArea.id)
             .select()
@@ -472,7 +475,8 @@ export const batchUpdatePrintAreas = async (productTemplateId, printAreasConfig)
               width: areaData.width,
               height: areaData.height,
               max_width: areaData.maxWidth,
-              max_height: areaData.maxHeight
+              max_height: areaData.maxHeight,
+              shape: areaData.shape || 'rectangle'
             })
             .select()
         );
@@ -702,7 +706,8 @@ export const loadProductConfiguration = async (productKey) => {
           width: area.width,
           height: area.height,
           maxWidth: area.max_width,
-          maxHeight: area.max_height
+          maxHeight: area.max_height,
+          shape: area.shape || 'rectangle'
         };
       });
     }

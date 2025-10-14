@@ -95,12 +95,40 @@ const EnhancedDesigner = () => {
     const loadProducts = async () => {
       setProductsLoading(true);
       try {
+        // Import Supabase service
+        const { loadProductConfiguration } = await import('../services/supabaseService');
+        
+        // Start with validated local products
         const validatedProducts = await getValidatedProducts(productsConfig);
-        setAvailableProducts(validatedProducts);
+        const mergedProducts = { ...validatedProducts };
+        
+        // Try to load each product from Supabase and merge with local config
+        console.log('[EnhancedDesigner] Loading products from Supabase...');
+        for (const productKey of Object.keys(validatedProducts)) {
+          try {
+            const supabaseConfig = await loadProductConfiguration(productKey);
+            if (supabaseConfig && supabaseConfig.printAreas && Object.keys(supabaseConfig.printAreas).length > 0) {
+              // Merge Supabase config with local config, prioritizing Supabase
+              console.log(`[EnhancedDesigner] ✓ Loaded ${productKey} from Supabase with ${Object.keys(supabaseConfig.printAreas).length} print areas`);
+              mergedProducts[productKey] = {
+                ...validatedProducts[productKey],
+                ...supabaseConfig
+              };
+            } else {
+              console.log(`[EnhancedDesigner] Using local config for ${productKey} (no Supabase data)`);
+            }
+          } catch (error) {
+            console.warn(`[EnhancedDesigner] Could not load ${productKey} from Supabase, using local config:`, error.message);
+            // Keep the validated local config
+          }
+        }
+        
+        setAvailableProducts(mergedProducts);
+        console.log('[EnhancedDesigner] Final available products:', Object.keys(mergedProducts));
         
         // If the currently selected product is not available, select the first available one
-        if (!validatedProducts[selectedProduct]) {
-          const availableKeys = Object.keys(validatedProducts);
+        if (!mergedProducts[selectedProduct]) {
+          const availableKeys = Object.keys(mergedProducts);
           if (availableKeys.length > 0) {
             setSelectedProduct(availableKeys[0]);
           }
