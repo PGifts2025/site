@@ -216,11 +216,12 @@ export const updateProductTemplate = async (productKey, updates) => {
         onConflict: 'product_key',
         ignoreDuplicates: false
       })
-      .select()
-      .single();
+      .select();
 
     if (error) throw error;
-    return data;
+    
+    // Return the first item if array is returned, otherwise return data
+    return Array.isArray(data) && data.length > 0 ? data[0] : data;
   } catch (error) {
     console.error('Error updating product template:', error);
     throw error;
@@ -414,6 +415,26 @@ export const batchUpdatePrintAreas = async (productTemplateId, printAreasConfig)
       (existingAreas || []).map(area => [area.area_key, area])
     );
 
+    // Delete areas that are no longer in the config FIRST
+    const configKeys = new Set(Object.keys(printAreasConfig));
+    const areasToDelete = Array.from(existingAreasMap.values())
+      .filter(area => !configKeys.has(area.area_key))
+      .map(area => area.id);
+
+    if (areasToDelete.length > 0) {
+      console.log('[batchUpdatePrintAreas] Deleting print areas:', areasToDelete);
+      const { error: deleteError } = await client
+        .from('print_areas')
+        .delete()
+        .in('id', areasToDelete);
+      
+      if (deleteError) {
+        console.error('[batchUpdatePrintAreas] Error deleting print areas:', deleteError);
+        throw deleteError;
+      }
+    }
+
+    // Now update/insert areas
     const operations = [];
 
     // Process each print area in the config
@@ -458,36 +479,27 @@ export const batchUpdatePrintAreas = async (productTemplateId, printAreasConfig)
       }
     }
 
-    // Delete areas that are no longer in the config
-    const configKeys = new Set(Object.keys(printAreasConfig));
-    const areasToDelete = Array.from(existingAreasMap.values())
-      .filter(area => !configKeys.has(area.area_key))
-      .map(area => area.id);
+    // Execute all update/insert operations
+    if (operations.length > 0) {
+      const results = await Promise.all(operations);
+      
+      // Check for errors
+      const errors = results.filter(r => r.error);
+      if (errors.length > 0) {
+        console.error('[batchUpdatePrintAreas] Errors in operations:', errors);
+        throw errors[0].error;
+      }
 
-    if (areasToDelete.length > 0) {
-      operations.push(
-        client
-          .from('print_areas')
-          .delete()
-          .in('id', areasToDelete)
-      );
+      // Return all updated/created areas
+      const updatedAreas = results
+        .filter(r => r.data)
+        .flatMap(r => Array.isArray(r.data) ? r.data : [r.data])
+        .filter(area => area != null); // Filter out null values
+
+      return updatedAreas;
     }
 
-    // Execute all operations
-    const results = await Promise.all(operations);
-    
-    // Check for errors
-    const errors = results.filter(r => r.error);
-    if (errors.length > 0) {
-      throw errors[0].error;
-    }
-
-    // Return all updated/created areas
-    const updatedAreas = results
-      .filter(r => r.data)
-      .flatMap(r => Array.isArray(r.data) ? r.data : [r.data]);
-
-    return updatedAreas;
+    return [];
   } catch (error) {
     console.error('Error batch updating print areas:', error);
     throw error;
