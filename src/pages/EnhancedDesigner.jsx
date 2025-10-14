@@ -645,10 +645,17 @@ const EnhancedDesigner = () => {
   };
 
   const handleSaveConfiguration = (productKey, updatedProduct) => {
-    // In a real application, this would save to a backend
-    // For now, we'll update the local state
-    console.log('Saving configuration for', productKey, updatedProduct);
-    alert('Configuration saved! (In a real app, this would save to your backend)');
+    // Configuration is already saved to Supabase by PrintAreaAdmin component
+    // This callback is just to update local state and close the modal
+    console.log('[EnhancedDesigner] Configuration saved for', productKey);
+    
+    // Update local products config if needed
+    setAvailableProducts(prev => ({
+      ...prev,
+      [productKey]: updatedProduct
+    }));
+    
+    // Close the Print Area Admin modal
     setShowPrintAreaAdmin(false);
   };
 

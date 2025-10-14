@@ -170,11 +170,14 @@ const PrintAreaAdmin = ({
     if (canvas && currentProduct) {
       console.log('[PrintAreaAdmin] useEffect triggered - loading product, template:', currentProduct.template);
       // Add a small delay to ensure canvas is fully ready
-      setTimeout(() => {
+      // Use a ref to track if we're loading to prevent race conditions
+      const timeoutId = setTimeout(() => {
         loadProduct();
       }, 100);
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [canvas, currentProduct, currentProduct?.template]);
+  }, [canvas, currentProduct?.template]); // Only depend on template URL, not entire currentProduct object
 
   // Update grid visibility
   useEffect(() => {
@@ -265,60 +268,87 @@ const PrintAreaAdmin = ({
       const fixedTemplateUrl = templateUrl.startsWith('http') ? templateUrl : 
                                (templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`);
       
-      // Add cache-busting parameter to force reload of new images
+      // Add aggressive cache-busting parameter to force reload of new images
+      // Use a more robust cache-busting approach
+      const timestamp = currentProduct._uploadTimestamp || Date.now();
       const cacheBustedUrl = fixedTemplateUrl.includes('?') 
-        ? `${fixedTemplateUrl}&t=${Date.now()}`
-        : `${fixedTemplateUrl}?t=${Date.now()}`;
+        ? `${fixedTemplateUrl}&_cb=${timestamp}`
+        : `${fixedTemplateUrl}?_cb=${timestamp}`;
       
       console.log('[PrintAreaAdmin] Loading template with cache-busting:', cacheBustedUrl);
       
-      fabric.Image.fromURL(cacheBustedUrl, (img) => {
-        console.log('[PrintAreaAdmin] Image.fromURL callback - img:', img);
-        if (img && img._element) {
-          console.log('[PrintAreaAdmin] Template loaded successfully, dimensions:', img.width, 'x', img.height);
-          
-          // Scale image to fit canvas while maintaining aspect ratio
-          const scale = Math.min(800 / img.width, 800 / img.height);
-          img.scale(scale);
-          
-          // Calculate centered position
-          const scaledWidth = img.width * scale;
-          const scaledHeight = img.height * scale;
-          const centerX = (800 - scaledWidth) / 2;
-          const centerY = (800 - scaledHeight) / 2;
-          
-          console.log('[PrintAreaAdmin] Image scale:', scale, 'position:', centerX, centerY);
-          
-          img.set({
-            left: centerX,
-            top: centerY,
-            selectable: false,
-            evented: false,
-            excludeFromExport: true,
-            id: 'productTemplate'
-          });
-          
-          console.log('[PrintAreaAdmin] Adding image to canvas');
-          canvas.add(img);
-          canvas.sendToBack(img);
-          
-          console.log('[PrintAreaAdmin] Canvas objects after add:', canvas.getObjects().length);
-          
-          // Load existing print areas AFTER template is loaded
-          setTimeout(() => {
+      // Create a new Image object first to test loading and handle errors better
+      const testImg = new Image();
+      testImg.crossOrigin = 'anonymous'; // For Supabase images
+      
+      testImg.onload = () => {
+        console.log('[PrintAreaAdmin] Test image loaded successfully, proceeding with Fabric.js');
+        
+        // Now load with Fabric.js
+        fabric.Image.fromURL(cacheBustedUrl, (img) => {
+          console.log('[PrintAreaAdmin] Image.fromURL callback - img:', img);
+          if (img && img._element) {
+            console.log('[PrintAreaAdmin] Template loaded successfully, dimensions:', img.width, 'x', img.height);
+            
+            // Scale image to fit canvas while maintaining aspect ratio
+            const scale = Math.min(800 / img.width, 800 / img.height);
+            img.scale(scale);
+            
+            // Calculate centered position
+            const scaledWidth = img.width * scale;
+            const scaledHeight = img.height * scale;
+            const centerX = (800 - scaledWidth) / 2;
+            const centerY = (800 - scaledHeight) / 2;
+            
+            console.log('[PrintAreaAdmin] Image scale:', scale, 'position:', centerX, centerY);
+            
+            img.set({
+              left: centerX,
+              top: centerY,
+              selectable: false,
+              evented: false,
+              excludeFromExport: true,
+              id: 'productTemplate'
+            });
+            
+            console.log('[PrintAreaAdmin] Adding image to canvas');
+            canvas.add(img);
+            canvas.sendToBack(img);
+            
+            console.log('[PrintAreaAdmin] Canvas objects after add:', canvas.getObjects().length);
+            
+            // Load existing print areas AFTER template is loaded
+            setTimeout(() => {
+              loadPrintAreas();
+              updateGridOverlay();
+              console.log('[PrintAreaAdmin] Calling canvas.renderAll() after loading print areas');
+              canvas.renderAll();
+            }, 50);
+          } else {
+            console.error('[PrintAreaAdmin] Failed to load template image - img:', img);
+            // Still load print areas even if template fails
             loadPrintAreas();
             updateGridOverlay();
-            console.log('[PrintAreaAdmin] Calling canvas.renderAll() after loading print areas');
             canvas.renderAll();
-          }, 50);
-        } else {
-          console.error('[PrintAreaAdmin] Failed to load template image - img:', img);
-          // Still load print areas even if template fails
-          loadPrintAreas();
-          updateGridOverlay();
-          canvas.renderAll();
-        }
-      }, { crossOrigin: 'anonymous' }); // Add crossOrigin option for Supabase images
+          }
+        }, { crossOrigin: 'anonymous' });
+      };
+      
+      testImg.onerror = (error) => {
+        console.error('[PrintAreaAdmin] Failed to load template image:', error);
+        console.error('[PrintAreaAdmin] URL that failed:', cacheBustedUrl);
+        setSaveMessage({ 
+          type: 'error', 
+          text: 'Failed to load template image. Please check the URL and try again.' 
+        });
+        // Still load print areas even if template fails
+        loadPrintAreas();
+        updateGridOverlay();
+        canvas.renderAll();
+      };
+      
+      // Trigger the image load
+      testImg.src = cacheBustedUrl;
     } else {
       console.log('[PrintAreaAdmin] No template URL in product config');
       loadPrintAreas();
@@ -545,18 +575,53 @@ const PrintAreaAdmin = ({
       maxHeight: 200
     };
 
-    setPrintAreas(prev => ({
-      ...prev,
+    console.log('[PrintAreaAdmin] Adding new print area:', key, newArea);
+
+    // Create fabric objects FIRST (synchronously)
+    const rect = new fabric.Rect({
+      left: newArea.x,
+      top: newArea.y,
+      width: newArea.width,
+      height: newArea.height,
+      fill: 'rgba(59, 130, 246, 0.2)',
+      stroke: '#3b82f6',
+      strokeWidth: 2,
+      strokeDashArray: [5, 5],
+      cornerColor: '#3b82f6',
+      cornerSize: 8,
+      transparentCorners: false,
+      id: `printArea_${key}`,
+      type: 'printArea',
+      printAreaKey: key,
+      printAreaName: newArea.name
+    });
+
+    const label = new fabric.Text(newArea.name, {
+      left: newArea.x + 5,
+      top: newArea.y - 25,
+      fontSize: 14,
+      fill: '#3b82f6',
+      fontWeight: 'bold',
+      selectable: false,
+      evented: false,
+      id: `printAreaLabel_${key}`,
+      type: 'printAreaLabel'
+    });
+
+    // Add to canvas immediately
+    canvas.add(rect);
+    canvas.add(label);
+    canvas.renderAll();
+    console.log('[PrintAreaAdmin] New print area rendered on canvas immediately');
+
+    // Update state AFTER canvas is updated (this prevents the useEffect from clearing it)
+    setPrintAreas(prevAreas => ({
+      ...prevAreas,
       [key]: newArea
     }));
 
     setNewAreaName('');
     setShowNewAreaDialog(false);
-
-    // Reload print areas to show the new one
-    setTimeout(() => {
-      loadPrintAreas();
-    }, 100);
   };
 
   const deletePrintArea = (key) => {
@@ -582,7 +647,10 @@ const PrintAreaAdmin = ({
   };
 
   const saveConfiguration = async () => {
-    if (!currentProduct || !selectedProduct) return;
+    if (!currentProduct || !selectedProduct) {
+      setSaveMessage({ type: 'error', text: 'No product selected to save.' });
+      return;
+    }
     
     if (!isAdmin) {
       setSaveMessage({ type: 'error', text: 'Only administrators can save configurations.' });
@@ -590,7 +658,7 @@ const PrintAreaAdmin = ({
     }
 
     setIsSaving(true);
-    setSaveMessage(null);
+    setSaveMessage({ type: 'info', text: 'Saving configuration to database...' });
 
     try {
       const updatedProduct = {
@@ -601,8 +669,16 @@ const PrintAreaAdmin = ({
         basePrice: currentProduct.basePrice
       };
 
-      // Save to Supabase
-      await saveProductConfiguration(selectedProduct, updatedProduct);
+      console.log('[PrintAreaAdmin] Saving configuration:', {
+        productKey: selectedProduct,
+        product: updatedProduct,
+        printAreasCount: Object.keys(printAreas).length
+      });
+
+      // Save to Supabase database
+      const result = await saveProductConfiguration(selectedProduct, updatedProduct);
+      
+      console.log('[PrintAreaAdmin] Save successful, result:', result);
 
       // Also call the parent callback if provided
       if (onSaveConfiguration) {
@@ -611,18 +687,16 @@ const PrintAreaAdmin = ({
 
       setSaveMessage({ 
         type: 'success', 
-        text: 'Configuration saved successfully to database!' 
+        text: `✓ Configuration saved successfully! Product: ${currentProduct.name}, Print Areas: ${Object.keys(printAreas).length}` 
       });
 
-      // Clear success message after 3 seconds
-      setTimeout(() => setSaveMessage(null), 3000);
-
-      console.log('[PrintAreaAdmin] Configuration saved successfully');
+      // Clear success message after 5 seconds
+      setTimeout(() => setSaveMessage(null), 5000);
     } catch (error) {
       console.error('[PrintAreaAdmin] Error saving configuration:', error);
       setSaveMessage({ 
         type: 'error', 
-        text: `Failed to save configuration: ${error.message}` 
+        text: `✗ Failed to save: ${error.message || 'Unknown error'}. Check console for details.` 
       });
     } finally {
       setIsSaving(false);
@@ -663,7 +737,7 @@ const PrintAreaAdmin = ({
     }
 
     setIsUploading(true);
-    setSaveMessage(null);
+    setSaveMessage({ type: 'info', text: 'Uploading template image...' });
 
     try {
       // Upload to Supabase Storage
@@ -682,15 +756,13 @@ const PrintAreaAdmin = ({
 
       console.log('[PrintAreaAdmin] Template uploaded, new URL:', templateUrl);
 
-      // Update current product with new template URL
+      // Save to database first to ensure persistence
       const updatedProduct = {
         ...currentProduct,
-        template: templateUrl
+        template: templateUrl,
+        printAreas: printAreas  // Include current print areas
       };
       
-      setCurrentProduct(updatedProduct);
-
-      // Also save to database to persist the change
       try {
         await saveProductConfiguration(selectedProduct, updatedProduct);
         console.log('[PrintAreaAdmin] Template URL saved to database');
@@ -699,17 +771,30 @@ const PrintAreaAdmin = ({
         // Don't throw - the template is uploaded and will work in current session
       }
 
+      // Update local state to trigger canvas refresh
+      // Adding a timestamp to force React to detect the change
+      setCurrentProduct({
+        ...updatedProduct,
+        _uploadTimestamp: Date.now()  // Force state change detection
+      });
+
+      // Clear the file input to allow re-uploading the same file if needed
+      if (e.target) {
+        e.target.value = '';
+      }
+
       setSaveMessage({ 
         type: 'success', 
-        text: 'Template image uploaded successfully! Canvas will refresh automatically.' 
+        text: '✓ Template image uploaded successfully! Refreshing canvas...' 
       });
       
-      setTimeout(() => setSaveMessage(null), 3000);
+      // Clear message after canvas has time to refresh
+      setTimeout(() => setSaveMessage(null), 4000);
     } catch (error) {
       console.error('[PrintAreaAdmin] Error uploading template:', error);
       setSaveMessage({ 
         type: 'error', 
-        text: `Failed to upload template: ${error.message}` 
+        text: `✗ Failed to upload template: ${error.message || 'Unknown error'}` 
       });
     } finally {
       setIsUploading(false);
@@ -725,10 +810,15 @@ const PrintAreaAdmin = ({
       try {
         const config = JSON.parse(event.target.result);
         if (config.printAreas) {
+          console.log('[PrintAreaAdmin] Importing configuration:', config.printAreas);
           setPrintAreas(config.printAreas);
-          setTimeout(() => {
-            loadPrintAreas();
-          }, 100);
+          
+          // Reload print areas after a short delay to ensure state is updated
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              loadPrintAreas();
+            });
+          });
         }
       } catch {
         alert('Invalid configuration file');
@@ -872,10 +962,14 @@ const PrintAreaAdmin = ({
             <div className={`flex items-center space-x-2 p-3 rounded-md ${
               saveMessage.type === 'success' 
                 ? 'bg-green-50 text-green-800 border border-green-200' 
+                : saveMessage.type === 'info'
+                ? 'bg-blue-50 text-blue-800 border border-blue-200'
                 : 'bg-red-50 text-red-800 border border-red-200'
             }`}>
               {saveMessage.type === 'success' ? (
                 <CheckCircle className="w-5 h-5" />
+              ) : saveMessage.type === 'info' ? (
+                <Loader className="w-5 h-5 animate-spin" />
               ) : (
                 <AlertCircle className="w-5 h-5" />
               )}
