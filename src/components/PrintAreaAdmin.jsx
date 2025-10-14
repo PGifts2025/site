@@ -180,27 +180,28 @@ const PrintAreaAdmin = ({
   }, [canvas, showGrid, gridSize]);
 
   const loadProduct = async () => {
-    console.log('[PrintAreaAdmin] loadProduct called - canvas:', canvas, 'selectedProduct:', selectedProduct);
-    if (!canvas || !selectedProduct) {
+    console.log('[PrintAreaAdmin] loadProduct called - canvas:', canvas, 'currentProduct:', currentProduct);
+    if (!canvas || !currentProduct) {
       console.log('[PrintAreaAdmin] loadProduct early return - missing canvas or product');
       return;
     }
 
-    const product = productsConfig[selectedProduct];
-    console.log('[PrintAreaAdmin] Product config:', product);
-    setCurrentProduct(product);
-    setPrintAreas({ ...product.printAreas });
+    // Use currentProduct state instead of productsConfig prop
+    // This ensures we use the latest data, including newly uploaded template URLs
+    console.log('[PrintAreaAdmin] Using current product:', currentProduct);
 
     // Clear canvas
     console.log('[PrintAreaAdmin] Clearing canvas');
     canvas.clear();
 
     // Load template image
-    if (product.template) {
+    if (currentProduct.template) {
       // Fix template path - ensure it starts with proper path
       // In Vite, public folder files are served from root
-      const templateUrl = product.template;
-      const fixedTemplateUrl = templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`;
+      // For Supabase URLs, use them as-is
+      const templateUrl = currentProduct.template;
+      const fixedTemplateUrl = templateUrl.startsWith('http') ? templateUrl : 
+                               (templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`);
       
       console.log('[PrintAreaAdmin] Loading template:', fixedTemplateUrl);
       
@@ -601,21 +602,15 @@ const PrintAreaAdmin = ({
       }
 
       // Update current product with new template URL
+      // The useEffect will automatically reload the canvas when currentProduct changes
       setCurrentProduct(prev => ({
         ...prev,
         template: templateUrl
       }));
 
-      // Reload the canvas with the new template
-      setTimeout(() => {
-        if (canvas) {
-          loadProduct();
-        }
-      }, 100);
-
       setSaveMessage({ 
         type: 'success', 
-        text: 'Template image uploaded successfully!' 
+        text: 'Template image uploaded successfully! Canvas will refresh automatically.' 
       });
       
       setTimeout(() => setSaveMessage(null), 3000);

@@ -116,7 +116,7 @@ export const getProductTemplates = async () => {
 /**
  * Get a single product template by product key
  * @param {string} productKey - Unique product key
- * @returns {Promise<Object>} Product template with print areas
+ * @returns {Promise<Object|null>} Product template with print areas, or null if not found
  */
 export const getProductTemplate = async (productKey) => {
   if (isMockAuth) {
@@ -134,7 +134,14 @@ export const getProductTemplate = async (productKey) => {
       .eq('product_key', productKey)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // If no rows found, return null instead of throwing
+      if (error.code === 'PGRST116' || error.message.includes('no rows')) {
+        console.log('[getProductTemplate] No template found for:', productKey);
+        return null;
+      }
+      throw error;
+    }
     return data;
   } catch (error) {
     console.error('Error fetching product template:', error);
