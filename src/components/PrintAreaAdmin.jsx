@@ -168,9 +168,13 @@ const PrintAreaAdmin = ({
   // Load product into canvas when data and canvas are ready
   useEffect(() => {
     if (canvas && currentProduct) {
-      loadProduct();
+      console.log('[PrintAreaAdmin] useEffect triggered - loading product, template:', currentProduct.template);
+      // Add a small delay to ensure canvas is fully ready
+      setTimeout(() => {
+        loadProduct();
+      }, 100);
     }
-  }, [canvas, currentProduct]);
+  }, [canvas, currentProduct, currentProduct?.template]);
 
   // Update grid visibility
   useEffect(() => {
@@ -178,6 +182,63 @@ const PrintAreaAdmin = ({
       updateGridOverlay();
     }
   }, [canvas, showGrid, gridSize]);
+
+  // Add keyboard navigation for fine-tuning print area positions
+  useEffect(() => {
+    if (!canvas) return;
+
+    const handleKeyDown = (e) => {
+      const activeObject = canvas.getActiveObject();
+      if (!activeObject || activeObject.type !== 'printArea') return;
+
+      // Prevent default arrow key behavior (scrolling)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      const nudgeAmount = e.shiftKey ? 10 : 1; // Hold Shift for 10px nudge
+      let moved = false;
+
+      switch (e.key) {
+        case 'ArrowUp':
+          activeObject.top -= nudgeAmount;
+          moved = true;
+          break;
+        case 'ArrowDown':
+          activeObject.top += nudgeAmount;
+          moved = true;
+          break;
+        case 'ArrowLeft':
+          activeObject.left -= nudgeAmount;
+          moved = true;
+          break;
+        case 'ArrowRight':
+          activeObject.left += nudgeAmount;
+          moved = true;
+          break;
+      }
+
+      if (moved) {
+        activeObject.setCoords();
+        canvas.renderAll();
+        
+        // Update the print areas state
+        handleObjectModified({ target: activeObject });
+        
+        console.log('[PrintAreaAdmin] Nudged print area with arrow keys:', {
+          key: e.key,
+          amount: nudgeAmount,
+          position: { left: activeObject.left, top: activeObject.top }
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [canvas]);
 
   const loadProduct = async () => {
     console.log('[PrintAreaAdmin] loadProduct called - canvas:', canvas, 'currentProduct:', currentProduct);
@@ -190,9 +251,10 @@ const PrintAreaAdmin = ({
     // This ensures we use the latest data, including newly uploaded template URLs
     console.log('[PrintAreaAdmin] Using current product:', currentProduct);
 
-    // Clear canvas
+    // Clear canvas completely
     console.log('[PrintAreaAdmin] Clearing canvas');
     canvas.clear();
+    canvas.renderAll();
 
     // Load template image
     if (currentProduct.template) {
@@ -203,9 +265,14 @@ const PrintAreaAdmin = ({
       const fixedTemplateUrl = templateUrl.startsWith('http') ? templateUrl : 
                                (templateUrl.startsWith('/') ? templateUrl : `/${templateUrl}`);
       
-      console.log('[PrintAreaAdmin] Loading template:', fixedTemplateUrl);
+      // Add cache-busting parameter to force reload of new images
+      const cacheBustedUrl = fixedTemplateUrl.includes('?') 
+        ? `${fixedTemplateUrl}&t=${Date.now()}`
+        : `${fixedTemplateUrl}?t=${Date.now()}`;
       
-      fabric.Image.fromURL(fixedTemplateUrl, (img) => {
+      console.log('[PrintAreaAdmin] Loading template with cache-busting:', cacheBustedUrl);
+      
+      fabric.Image.fromURL(cacheBustedUrl, (img) => {
         console.log('[PrintAreaAdmin] Image.fromURL callback - img:', img);
         if (img && img._element) {
           console.log('[PrintAreaAdmin] Template loaded successfully, dimensions:', img.width, 'x', img.height);
@@ -237,11 +304,13 @@ const PrintAreaAdmin = ({
           
           console.log('[PrintAreaAdmin] Canvas objects after add:', canvas.getObjects().length);
           
-          // Load existing print areas
-          loadPrintAreas();
-          updateGridOverlay();
-          console.log('[PrintAreaAdmin] Calling canvas.renderAll()');
-          canvas.renderAll();
+          // Load existing print areas AFTER template is loaded
+          setTimeout(() => {
+            loadPrintAreas();
+            updateGridOverlay();
+            console.log('[PrintAreaAdmin] Calling canvas.renderAll() after loading print areas');
+            canvas.renderAll();
+          }, 50);
         } else {
           console.error('[PrintAreaAdmin] Failed to load template image - img:', img);
           // Still load print areas even if template fails
@@ -249,23 +318,33 @@ const PrintAreaAdmin = ({
           updateGridOverlay();
           canvas.renderAll();
         }
-      });
+      }, { crossOrigin: 'anonymous' }); // Add crossOrigin option for Supabase images
     } else {
       console.log('[PrintAreaAdmin] No template URL in product config');
       loadPrintAreas();
       updateGridOverlay();
+      canvas.renderAll();
     }
   };
 
   const loadPrintAreas = () => {
-    if (!canvas || !printAreas) return;
+    if (!canvas || !printAreas) {
+      console.log('[PrintAreaAdmin] loadPrintAreas early return - canvas:', canvas, 'printAreas:', printAreas);
+      return;
+    }
 
-    // Remove existing print area objects
-    const existingAreas = canvas.getObjects().filter(obj => obj.type === 'printArea');
+    console.log('[PrintAreaAdmin] Loading print areas:', Object.keys(printAreas));
+
+    // Remove existing print area objects and labels
+    const existingAreas = canvas.getObjects().filter(obj => 
+      obj.type === 'printArea' || obj.type === 'printAreaLabel'
+    );
     existingAreas.forEach(area => canvas.remove(area));
 
     // Add print areas as editable rectangles
     Object.entries(printAreas).forEach(([key, area]) => {
+      console.log('[PrintAreaAdmin] Creating print area:', key, area);
+      
       const rect = new fabric.Rect({
         left: area.x,
         top: area.y,
@@ -601,12 +680,24 @@ const PrintAreaAdmin = ({
         templateUrl = await uploadTemplateImage(file, selectedProduct);
       }
 
+      console.log('[PrintAreaAdmin] Template uploaded, new URL:', templateUrl);
+
       // Update current product with new template URL
-      // The useEffect will automatically reload the canvas when currentProduct changes
-      setCurrentProduct(prev => ({
-        ...prev,
+      const updatedProduct = {
+        ...currentProduct,
         template: templateUrl
-      }));
+      };
+      
+      setCurrentProduct(updatedProduct);
+
+      // Also save to database to persist the change
+      try {
+        await saveProductConfiguration(selectedProduct, updatedProduct);
+        console.log('[PrintAreaAdmin] Template URL saved to database');
+      } catch (saveError) {
+        console.warn('[PrintAreaAdmin] Failed to save template URL to database:', saveError);
+        // Don't throw - the template is uploaded and will work in current session
+      }
 
       setSaveMessage({ 
         type: 'success', 
