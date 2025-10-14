@@ -1,32 +1,35 @@
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { fabric } from 'fabric';
 import { 
-  Settings, 
   Save, 
   Plus, 
-  Trash2, 
-  Eye, 
-  EyeOff, 
-  Move, 
-  RotateCcw,
+  Trash2,
   Download,
   Upload,
   Grid,
-  Ruler
+  AlertCircle,
+  CheckCircle,
+  Loader
 } from 'lucide-react';
+import { useAuth } from './AuthProvider';
+import { 
+  saveProductConfiguration, 
+  loadProductConfiguration, 
+  uploadTemplateImage, 
+  replaceTemplateImage,
+  isCurrentUserAdmin 
+} from '../services/supabaseService';
 
 /**
  * Print Area Admin Component
  * 
- * Design Intent:
- * - Automatically loads the product template from the configured template path in products.json
- * - Templates are stored in public/templates/{product-type}/template.png
- * - The Visual Configuration canvas displays the template centered and scaled to fit
- * - Print areas are shown as blue draggable/resizable rectangles overlaid on the template
- * - Administrators can visually configure print areas by dragging and resizing
- * - Changes are saved back to the product configuration
- * - No manual template import is needed - it uses the template from the folder automatically
+ * Enhanced with Supabase Backend Persistence:
+ * - Automatically loads the product template from Supabase or products.json
+ * - Saves all configuration changes to Supabase database
+ * - Supports template image uploads to Supabase Storage
+ * - Admin-only access with proper authentication checks
+ * - Real-time persistence with loading states and error handling
  */
 const PrintAreaAdmin = ({ 
   selectedProduct, 
@@ -34,19 +37,47 @@ const PrintAreaAdmin = ({
   onSaveConfiguration,
   onClose 
 }) => {
+  const { user } = useAuth();
   const fileInputRef = useRef(null);
+  const templateUploadRef = useRef(null);
   const fabricCanvasRef = useRef(null);
   const [canvas, setCanvas] = useState(null);
   const [currentProduct, setCurrentProduct] = useState(null);
   const [printAreas, setPrintAreas] = useState({});
   const [selectedPrintArea, setSelectedPrintArea] = useState(null);
   const [showGrid, setShowGrid] = useState(true);
-  const [showRulers, setShowRulers] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize, setGridSize] = useState(20);
-  const [isEditing, setIsEditing] = useState(false);
   const [newAreaName, setNewAreaName] = useState('');
   const [showNewAreaDialog, setShowNewAreaDialog] = useState(false);
+  
+  // Backend persistence states
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [saveMessage, setSaveMessage] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminCheckLoading, setAdminCheckLoading] = useState(true);
+
+  // Check if user is admin
+  useEffect(() => {
+    const checkAdmin = async () => {
+      setAdminCheckLoading(true);
+      try {
+        const adminStatus = await isCurrentUserAdmin();
+        console.log('[PrintAreaAdmin] Admin check result:', adminStatus);
+        setIsAdmin(adminStatus);
+      } catch (error) {
+        console.error('[PrintAreaAdmin] Error checking admin status:', error);
+        setIsAdmin(false);
+      } finally {
+        setAdminCheckLoading(false);
+      }
+    };
+
+    // Always run the admin check - it will handle the mock auth case internally
+    checkAdmin();
+  }, [user]);
 
   // Callback ref to initialize canvas when element is mounted
   const canvasRef = React.useCallback((canvasElement) => {
@@ -97,17 +128,49 @@ const PrintAreaAdmin = ({
     }
   }, []); // Empty dependency array - callback doesn't change
 
-  // Load product when selected
+  // Load product when selected - try Supabase first, fallback to products.json
   useEffect(() => {
-    if (canvas && selectedProduct && productsConfig && productsConfig[selectedProduct]) {
+    const loadProductData = async () => {
+      if (!selectedProduct) return;
+      
+      setIsLoading(true);
+      try {
+        // Try to load from Supabase first
+        const supabaseConfig = await loadProductConfiguration(selectedProduct);
+        
+        if (supabaseConfig) {
+          console.log('[PrintAreaAdmin] Loaded configuration from Supabase:', supabaseConfig);
+          setCurrentProduct(supabaseConfig);
+          setPrintAreas({ ...supabaseConfig.printAreas });
+        } else if (productsConfig && productsConfig[selectedProduct]) {
+          // Fallback to products.json
+          console.log('[PrintAreaAdmin] Using configuration from products.json');
+          const product = productsConfig[selectedProduct];
+          setCurrentProduct(product);
+          setPrintAreas({ ...product.printAreas });
+        }
+      } catch (error) {
+        console.error('[PrintAreaAdmin] Error loading product data:', error);
+        // Fallback to products.json on error
+        if (productsConfig && productsConfig[selectedProduct]) {
+          const product = productsConfig[selectedProduct];
+          setCurrentProduct(product);
+          setPrintAreas({ ...product.printAreas });
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadProductData();
+  }, [selectedProduct, productsConfig]);
+
+  // Load product into canvas when data and canvas are ready
+  useEffect(() => {
+    if (canvas && currentProduct) {
       loadProduct();
-    } else if (selectedProduct && productsConfig && productsConfig[selectedProduct]) {
-      // Set product info even before canvas is ready
-      const product = productsConfig[selectedProduct];
-      setCurrentProduct(product);
-      setPrintAreas({ ...product.printAreas });
     }
-  }, [canvas, selectedProduct, productsConfig]);
+  }, [canvas, currentProduct]);
 
   // Update grid visibility
   useEffect(() => {
@@ -438,15 +501,52 @@ const PrintAreaAdmin = ({
     }
   };
 
-  const saveConfiguration = () => {
+  const saveConfiguration = async () => {
     if (!currentProduct || !selectedProduct) return;
+    
+    if (!isAdmin) {
+      setSaveMessage({ type: 'error', text: 'Only administrators can save configurations.' });
+      return;
+    }
 
-    const updatedProduct = {
-      ...currentProduct,
-      printAreas: printAreas
-    };
+    setIsSaving(true);
+    setSaveMessage(null);
 
-    onSaveConfiguration(selectedProduct, updatedProduct);
+    try {
+      const updatedProduct = {
+        name: currentProduct.name,
+        template: currentProduct.template,
+        printAreas: printAreas,
+        colors: currentProduct.colors,
+        basePrice: currentProduct.basePrice
+      };
+
+      // Save to Supabase
+      await saveProductConfiguration(selectedProduct, updatedProduct);
+
+      // Also call the parent callback if provided
+      if (onSaveConfiguration) {
+        onSaveConfiguration(selectedProduct, updatedProduct);
+      }
+
+      setSaveMessage({ 
+        type: 'success', 
+        text: 'Configuration saved successfully to database!' 
+      });
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSaveMessage(null), 3000);
+
+      console.log('[PrintAreaAdmin] Configuration saved successfully');
+    } catch (error) {
+      console.error('[PrintAreaAdmin] Error saving configuration:', error);
+      setSaveMessage({ 
+        type: 'error', 
+        text: `Failed to save configuration: ${error.message}` 
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const exportConfiguration = () => {
@@ -467,6 +567,69 @@ const PrintAreaAdmin = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleTemplateUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!isAdmin) {
+      setSaveMessage({ type: 'error', text: 'Only administrators can upload templates.' });
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setSaveMessage({ type: 'error', text: 'Please select an image file.' });
+      return;
+    }
+
+    setIsUploading(true);
+    setSaveMessage(null);
+
+    try {
+      // Upload to Supabase Storage
+      let templateUrl;
+      if (currentProduct && currentProduct.template) {
+        // Replace existing template
+        templateUrl = await replaceTemplateImage(
+          currentProduct.template,
+          file,
+          selectedProduct
+        );
+      } else {
+        // Upload new template
+        templateUrl = await uploadTemplateImage(file, selectedProduct);
+      }
+
+      // Update current product with new template URL
+      setCurrentProduct(prev => ({
+        ...prev,
+        template: templateUrl
+      }));
+
+      // Reload the canvas with the new template
+      setTimeout(() => {
+        if (canvas) {
+          loadProduct();
+        }
+      }, 100);
+
+      setSaveMessage({ 
+        type: 'success', 
+        text: 'Template image uploaded successfully!' 
+      });
+      
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error('[PrintAreaAdmin] Error uploading template:', error);
+      setSaveMessage({ 
+        type: 'error', 
+        text: `Failed to upload template: ${error.message}` 
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const importConfiguration = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -481,12 +644,61 @@ const PrintAreaAdmin = ({
             loadPrintAreas();
           }, 100);
         }
-      } catch (error) {
+      } catch {
         alert('Invalid configuration file');
       }
     };
     reader.readAsText(file);
   };
+
+  // Admin check loading
+  if (adminCheckLoading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 text-center">
+          <Loader className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <h2 className="text-xl font-bold mb-2">Checking Access</h2>
+          <p className="text-gray-600">Verifying administrator permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Non-admin message
+  if (!isAdmin) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4">
+          <div className="flex items-center justify-center mb-4 text-red-600">
+            <AlertCircle className="w-12 h-12" />
+          </div>
+          <h2 className="text-2xl font-bold mb-4 text-center">Access Denied</h2>
+          <p className="text-gray-600 text-center mb-6">
+            You must be an administrator to access the Print Area Configuration panel.
+          </p>
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading product data
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 text-center">
+          <Loader className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <h2 className="text-xl font-bold mb-2">Loading Product</h2>
+          <p className="text-gray-600">Please wait...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!selectedProduct || !currentProduct) {
     return (
@@ -509,40 +721,81 @@ const PrintAreaAdmin = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg w-full max-w-7xl" style={{ height: '90vh', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b flex-shrink-0">
-          <div>
-            <h2 className="text-2xl font-bold">Print Area Configuration</h2>
-            <p className="text-gray-600">Product: {currentProduct.name}</p>
+        <div className="p-6 border-b flex-shrink-0">
+          <div className="flex justify-between items-center mb-3">
+            <div>
+              <h2 className="text-2xl font-bold">Print Area Configuration</h2>
+              <p className="text-gray-600">Product: {currentProduct.name}</p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => templateUploadRef.current?.click()}
+                disabled={isUploading}
+                className="flex items-center space-x-1 px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Upload Product Template Image"
+              >
+                {isUploading ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                <span>Template</span>
+              </button>
+              <button
+                onClick={exportConfiguration}
+                className="flex items-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export</span>
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center space-x-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Import</span>
+              </button>
+              <button
+                onClick={saveConfiguration}
+                disabled={isSaving}
+                className="flex items-center space-x-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+              >
+                Close
+              </button>
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={exportConfiguration}
-              className="flex items-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export</span>
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center space-x-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-            >
-              <Upload className="w-4 h-4" />
-              <span>Import</span>
-            </button>
-            <button
-              onClick={saveConfiguration}
-              className="flex items-center space-x-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              <Save className="w-4 h-4" />
-              <span>Save</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
-            >
-              Close
-            </button>
-          </div>
+          
+          {/* Save Message */}
+          {saveMessage && (
+            <div className={`flex items-center space-x-2 p-3 rounded-md ${
+              saveMessage.type === 'success' 
+                ? 'bg-green-50 text-green-800 border border-green-200' 
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              {saveMessage.type === 'success' ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : (
+                <AlertCircle className="w-5 h-5" />
+              )}
+              <span className="font-medium">{saveMessage.text}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
@@ -799,6 +1052,13 @@ const PrintAreaAdmin = ({
           type="file"
           accept=".json"
           onChange={importConfiguration}
+          className="hidden"
+        />
+        <input
+          ref={templateUploadRef}
+          type="file"
+          accept="image/*"
+          onChange={handleTemplateUpload}
           className="hidden"
         />
       </div>
