@@ -201,15 +201,21 @@ export const updateProductTemplate = async (productKey, updates) => {
 
   try {
     const client = getSupabaseClient();
+    
+    // Use upsert to handle both insert and update cases
     const { data, error } = await client
       .from('product_templates')
-      .update({
+      .upsert({
+        product_key: productKey,
         name: updates.name,
         template_url: updates.templateUrl,
         colors: updates.colors,
-        base_price: updates.basePrice
+        base_price: updates.basePrice,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'product_key',
+        ignoreDuplicates: false
       })
-      .eq('product_key', productKey)
       .select()
       .single();
 

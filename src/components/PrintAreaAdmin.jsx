@@ -168,9 +168,10 @@ const PrintAreaAdmin = ({
   // Load product into canvas when data and canvas are ready
   useEffect(() => {
     if (canvas && currentProduct) {
+      console.log('[PrintAreaAdmin] useEffect triggered - loading product');
       loadProduct();
     }
-  }, [canvas, currentProduct]);
+  }, [canvas, currentProduct, currentProduct?.template]);
 
   // Update grid visibility
   useEffect(() => {
@@ -178,6 +179,63 @@ const PrintAreaAdmin = ({
       updateGridOverlay();
     }
   }, [canvas, showGrid, gridSize]);
+
+  // Add keyboard navigation for fine-tuning print area positions
+  useEffect(() => {
+    if (!canvas) return;
+
+    const handleKeyDown = (e) => {
+      const activeObject = canvas.getActiveObject();
+      if (!activeObject || activeObject.type !== 'printArea') return;
+
+      // Prevent default arrow key behavior (scrolling)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      const nudgeAmount = e.shiftKey ? 10 : 1; // Hold Shift for 10px nudge
+      let moved = false;
+
+      switch (e.key) {
+        case 'ArrowUp':
+          activeObject.top -= nudgeAmount;
+          moved = true;
+          break;
+        case 'ArrowDown':
+          activeObject.top += nudgeAmount;
+          moved = true;
+          break;
+        case 'ArrowLeft':
+          activeObject.left -= nudgeAmount;
+          moved = true;
+          break;
+        case 'ArrowRight':
+          activeObject.left += nudgeAmount;
+          moved = true;
+          break;
+      }
+
+      if (moved) {
+        activeObject.setCoords();
+        canvas.renderAll();
+        
+        // Update the print areas state
+        handleObjectModified({ target: activeObject });
+        
+        console.log('[PrintAreaAdmin] Nudged print area with arrow keys:', {
+          key: e.key,
+          amount: nudgeAmount,
+          position: { left: activeObject.left, top: activeObject.top }
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [canvas]);
 
   const loadProduct = async () => {
     console.log('[PrintAreaAdmin] loadProduct called - canvas:', canvas, 'currentProduct:', currentProduct);
@@ -258,14 +316,23 @@ const PrintAreaAdmin = ({
   };
 
   const loadPrintAreas = () => {
-    if (!canvas || !printAreas) return;
+    if (!canvas || !printAreas) {
+      console.log('[PrintAreaAdmin] loadPrintAreas early return - canvas:', canvas, 'printAreas:', printAreas);
+      return;
+    }
 
-    // Remove existing print area objects
-    const existingAreas = canvas.getObjects().filter(obj => obj.type === 'printArea');
+    console.log('[PrintAreaAdmin] Loading print areas:', Object.keys(printAreas));
+
+    // Remove existing print area objects and labels
+    const existingAreas = canvas.getObjects().filter(obj => 
+      obj.type === 'printArea' || obj.type === 'printAreaLabel'
+    );
     existingAreas.forEach(area => canvas.remove(area));
 
     // Add print areas as editable rectangles
     Object.entries(printAreas).forEach(([key, area]) => {
+      console.log('[PrintAreaAdmin] Creating print area:', key, area);
+      
       const rect = new fabric.Rect({
         left: area.x,
         top: area.y,
