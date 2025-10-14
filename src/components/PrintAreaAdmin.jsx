@@ -10,7 +10,9 @@ import {
   Grid,
   AlertCircle,
   CheckCircle,
-  Loader
+  Loader,
+  Settings,
+  RotateCw
 } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { supabaseConfig } from '../config/supabase';
@@ -50,6 +52,7 @@ const PrintAreaAdmin = ({
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize, setGridSize] = useState(20);
   const [newAreaName, setNewAreaName] = useState('');
+  const [newAreaShape, setNewAreaShape] = useState('rectangle');
   const [showNewAreaDialog, setShowNewAreaDialog] = useState(false);
   
   // Backend persistence states
@@ -60,6 +63,9 @@ const PrintAreaAdmin = ({
   const [lastSaved, setLastSaved] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminCheckLoading, setAdminCheckLoading] = useState(true);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [availableTemplates, setAvailableTemplates] = useState([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   // Check if user is admin
   useEffect(() => {
@@ -389,27 +395,56 @@ const PrintAreaAdmin = ({
     );
     existingAreas.forEach(area => canvas.remove(area));
 
-    // Add print areas as editable rectangles
+    // Add print areas as editable shapes (rectangles, circles, or ellipses)
     Object.entries(printAreas).forEach(([key, area]) => {
       console.log('[PrintAreaAdmin] Creating print area:', key, area);
       
-      const rect = new fabric.Rect({
-        left: area.x,
-        top: area.y,
-        width: area.width,
-        height: area.height,
-        fill: 'rgba(59, 130, 246, 0.2)',
-        stroke: '#3b82f6',
-        strokeWidth: 2,
-        strokeDashArray: [5, 5],
-        cornerColor: '#3b82f6',
-        cornerSize: 8,
-        transparentCorners: false,
-        id: `printArea_${key}`,
-        type: 'printArea',
-        printAreaKey: key,
-        printAreaName: area.name
-      });
+      let shape;
+      const shapeType = area.shape || 'rectangle';
+      
+      if (shapeType === 'circle' || shapeType === 'ellipse') {
+        // Create circle or ellipse
+        const radiusX = area.width / 2;
+        const radiusY = area.height / 2;
+        shape = new fabric.Ellipse({
+          left: area.x,
+          top: area.y,
+          rx: radiusX,
+          ry: radiusY,
+          fill: 'rgba(59, 130, 246, 0.2)',
+          stroke: '#3b82f6',
+          strokeWidth: 2,
+          strokeDashArray: [5, 5],
+          cornerColor: '#3b82f6',
+          cornerSize: 8,
+          transparentCorners: false,
+          id: `printArea_${key}`,
+          type: 'printArea',
+          printAreaKey: key,
+          printAreaName: area.name,
+          printAreaShape: shapeType
+        });
+      } else {
+        // Create rectangle (default)
+        shape = new fabric.Rect({
+          left: area.x,
+          top: area.y,
+          width: area.width,
+          height: area.height,
+          fill: 'rgba(59, 130, 246, 0.2)',
+          stroke: '#3b82f6',
+          strokeWidth: 2,
+          strokeDashArray: [5, 5],
+          cornerColor: '#3b82f6',
+          cornerSize: 8,
+          transparentCorners: false,
+          id: `printArea_${key}`,
+          type: 'printArea',
+          printAreaKey: key,
+          printAreaName: area.name,
+          printAreaShape: shapeType
+        });
+      }
 
       // Add label
       const label = new fabric.Text(area.name, {
@@ -424,7 +459,7 @@ const PrintAreaAdmin = ({
         type: 'printAreaLabel'
       });
 
-      canvas.add(rect);
+      canvas.add(shape);
       canvas.add(label);
     });
 
@@ -516,20 +551,34 @@ const PrintAreaAdmin = ({
     if (obj.type === 'printArea') {
       const key = obj.printAreaKey;
       const existingArea = printAreas[key];
+      const shapeType = obj.printAreaShape || existingArea?.shape || 'rectangle';
       
-      // Preserve ALL existing properties, especially the name
+      // Calculate dimensions based on shape type
+      let width, height;
+      if (shapeType === 'circle' || shapeType === 'ellipse') {
+        // For ellipses, width/height are diameter (2 * radius)
+        width = Math.round(obj.rx * 2 * obj.scaleX);
+        height = Math.round(obj.ry * 2 * obj.scaleY);
+      } else {
+        // For rectangles
+        width = Math.round(obj.width * obj.scaleX);
+        height = Math.round(obj.height * obj.scaleY);
+      }
+      
+      // Preserve ALL existing properties, especially the name and shape
       const newArea = {
         ...existingArea,
         name: existingArea?.name || obj.printAreaName || key, // Explicitly preserve name
+        shape: shapeType, // Preserve shape
         x: Math.round(obj.left),
         y: Math.round(obj.top),
-        width: Math.round(obj.width * obj.scaleX),
-        height: Math.round(obj.height * obj.scaleY),
-        maxWidth: Math.round(obj.width * obj.scaleX),
-        maxHeight: Math.round(obj.height * obj.scaleY)
+        width: width,
+        height: height,
+        maxWidth: width,
+        maxHeight: height
       };
       
-      console.log('[PrintAreaAdmin] Updating print area:', key, 'with name:', newArea.name);
+      console.log('[PrintAreaAdmin] Updating print area:', key, 'with name:', newArea.name, 'shape:', newArea.shape);
 
       setPrintAreas(prev => ({
         ...prev,
@@ -546,12 +595,21 @@ const PrintAreaAdmin = ({
       }
 
       // Reset scale to prevent compound scaling
-      obj.set({
-        scaleX: 1,
-        scaleY: 1,
-        width: newArea.width,
-        height: newArea.height
-      });
+      if (shapeType === 'circle' || shapeType === 'ellipse') {
+        obj.set({
+          scaleX: 1,
+          scaleY: 1,
+          rx: width / 2,
+          ry: height / 2
+        });
+      } else {
+        obj.set({
+          scaleX: 1,
+          scaleY: 1,
+          width: width,
+          height: height
+        });
+      }
 
       fabricCanvas.renderAll();
     }
@@ -596,7 +654,8 @@ const PrintAreaAdmin = ({
       width: 200,
       height: 200,
       maxWidth: 200,
-      maxHeight: 200
+      maxHeight: 200,
+      shape: newAreaShape
     };
 
     console.log('[PrintAreaAdmin] Adding new print area:', key, newArea);
@@ -621,23 +680,52 @@ const PrintAreaAdmin = ({
         
         // Render all print areas including the new one
         Object.entries(updatedAreas).forEach(([areaKey, area]) => {
-          const rect = new fabric.Rect({
-            left: area.x,
-            top: area.y,
-            width: area.width,
-            height: area.height,
-            fill: 'rgba(59, 130, 246, 0.2)',
-            stroke: '#3b82f6',
-            strokeWidth: 2,
-            strokeDashArray: [5, 5],
-            cornerColor: '#3b82f6',
-            cornerSize: 8,
-            transparentCorners: false,
-            id: `printArea_${areaKey}`,
-            type: 'printArea',
-            printAreaKey: areaKey,
-            printAreaName: area.name
-          });
+          let shape;
+          const shapeType = area.shape || 'rectangle';
+          
+          if (shapeType === 'circle' || shapeType === 'ellipse') {
+            // Create circle or ellipse
+            const radiusX = area.width / 2;
+            const radiusY = area.height / 2;
+            shape = new fabric.Ellipse({
+              left: area.x,
+              top: area.y,
+              rx: radiusX,
+              ry: radiusY,
+              fill: 'rgba(59, 130, 246, 0.2)',
+              stroke: '#3b82f6',
+              strokeWidth: 2,
+              strokeDashArray: [5, 5],
+              cornerColor: '#3b82f6',
+              cornerSize: 8,
+              transparentCorners: false,
+              id: `printArea_${areaKey}`,
+              type: 'printArea',
+              printAreaKey: areaKey,
+              printAreaName: area.name,
+              printAreaShape: shapeType
+            });
+          } else {
+            // Create rectangle (default)
+            shape = new fabric.Rect({
+              left: area.x,
+              top: area.y,
+              width: area.width,
+              height: area.height,
+              fill: 'rgba(59, 130, 246, 0.2)',
+              stroke: '#3b82f6',
+              strokeWidth: 2,
+              strokeDashArray: [5, 5],
+              cornerColor: '#3b82f6',
+              cornerSize: 8,
+              transparentCorners: false,
+              id: `printArea_${areaKey}`,
+              type: 'printArea',
+              printAreaKey: areaKey,
+              printAreaName: area.name,
+              printAreaShape: shapeType
+            });
+          }
 
           const label = new fabric.Text(area.name, {
             left: area.x + 5,
@@ -651,7 +739,7 @@ const PrintAreaAdmin = ({
             type: 'printAreaLabel'
           });
 
-          canvas.add(rect);
+          canvas.add(shape);
           canvas.add(label);
         });
         
@@ -663,6 +751,7 @@ const PrintAreaAdmin = ({
     });
 
     setNewAreaName('');
+    setNewAreaShape('rectangle');
     setShowNewAreaDialog(false);
   };
 
@@ -891,6 +980,116 @@ const PrintAreaAdmin = ({
     reader.readAsText(file);
   };
 
+  // Template Management Functions
+  const loadAvailableTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const { getProductTemplates } = await import('../services/supabaseService');
+      const templates = await getProductTemplates();
+      
+      console.log('[PrintAreaAdmin] Loaded templates:', templates);
+      setAvailableTemplates(templates);
+    } catch (error) {
+      console.error('[PrintAreaAdmin] Error loading templates:', error);
+      setSaveMessage({ 
+        type: 'error', 
+        text: `Failed to load templates: ${error.message}` 
+      });
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const loadTemplateForEditing = async (template) => {
+    try {
+      console.log('[PrintAreaAdmin] Loading template for editing:', template);
+      
+      // Close the template manager
+      setShowTemplateManager(false);
+      
+      // Convert print areas array to object format
+      const printAreasObj = {};
+      if (template.print_areas && Array.isArray(template.print_areas)) {
+        template.print_areas.forEach(area => {
+          printAreasObj[area.area_key] = {
+            name: area.name,
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height,
+            maxWidth: area.max_width,
+            maxHeight: area.max_height,
+            shape: area.shape || 'rectangle'
+          };
+        });
+      }
+      
+      // Update current product state
+      const updatedProduct = {
+        name: template.name,
+        template: template.template_url,
+        printAreas: printAreasObj,
+        colors: template.colors || [],
+        basePrice: template.base_price || 0
+      };
+      
+      setCurrentProduct(updatedProduct);
+      setPrintAreas(printAreasObj);
+      
+      // Wait for state to update, then reload canvas
+      setTimeout(() => {
+        loadProduct();
+      }, 100);
+      
+      setSaveMessage({ 
+        type: 'success', 
+        text: `Template "${template.name}" loaded for editing` 
+      });
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error('[PrintAreaAdmin] Error loading template for editing:', error);
+      setSaveMessage({ 
+        type: 'error', 
+        text: `Failed to load template: ${error.message}` 
+      });
+    }
+  };
+
+  const deleteTemplate = async (template) => {
+    if (!confirm(`Are you sure you want to delete the template "${template.name}"? This will also delete all associated print areas. This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const { deleteProductTemplate } = await import('../services/supabaseService');
+      await deleteProductTemplate(template.product_key);
+      
+      console.log('[PrintAreaAdmin] Deleted template:', template.product_key);
+      
+      // Reload templates list
+      await loadAvailableTemplates();
+      
+      setSaveMessage({ 
+        type: 'success', 
+        text: `Template "${template.name}" deleted successfully` 
+      });
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error('[PrintAreaAdmin] Error deleting template:', error);
+      setSaveMessage({ 
+        type: 'error', 
+        text: `Failed to delete template: ${error.message}` 
+      });
+    }
+  };
+
+  // Load templates when manager is opened
+  useEffect(() => {
+    if (showTemplateManager) {
+      loadAvailableTemplates();
+    }
+  }, [showTemplateManager]);
+
   // Admin check loading
   if (adminCheckLoading) {
     return (
@@ -1000,6 +1199,14 @@ const PrintAreaAdmin = ({
               >
                 <Upload className="w-4 h-4" />
                 <span>Import</span>
+              </button>
+              <button
+                onClick={() => setShowTemplateManager(true)}
+                className="flex items-center space-x-1 px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                title="Manage Templates"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Manage</span>
               </button>
               <button
                 onClick={saveConfiguration}
@@ -1274,11 +1481,31 @@ const PrintAreaAdmin = ({
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Shape
+                  </label>
+                  <select
+                    value={newAreaShape}
+                    onChange={(e) => setNewAreaShape(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="rectangle">Rectangle</option>
+                    <option value="circle">Circle</option>
+                    <option value="ellipse">Ellipse</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {newAreaShape === 'rectangle' && 'Rectangular print area for standard designs'}
+                    {newAreaShape === 'circle' && 'Perfect circle print area (width = height)'}
+                    {newAreaShape === 'ellipse' && 'Oval/elliptical print area (adjustable width and height)'}
+                  </p>
+                </div>
                 <div className="flex justify-end space-x-2">
                   <button
                     onClick={() => {
                       setShowNewAreaDialog(false);
                       setNewAreaName('');
+                      setNewAreaShape('rectangle');
                     }}
                     className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
                   >
@@ -1290,6 +1517,136 @@ const PrintAreaAdmin = ({
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                   >
                     Add Area
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Template Manager Modal */}
+        {showTemplateManager && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg w-full max-w-4xl max-h-[80vh] flex flex-col mx-4">
+              {/* Header */}
+              <div className="p-6 border-b flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-bold">Manage Templates</h3>
+                  <button
+                    onClick={() => setShowTemplateManager(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <span className="text-2xl">&times;</span>
+                  </button>
+                </div>
+                <p className="text-sm text-gray-600 mt-1">
+                  View, edit, and delete existing product templates
+                </p>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 overflow-y-auto flex-1">
+                {loadingTemplates ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader className="w-8 h-8 animate-spin text-blue-600" />
+                    <span className="ml-2 text-gray-600">Loading templates...</span>
+                  </div>
+                ) : availableTemplates.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No templates found in the database.</p>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Create a new template by configuring a product and saving it.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {availableTemplates.map((template) => (
+                      <div
+                        key={template.id}
+                        className="border border-gray-200 rounded-lg p-4 hover:border-blue-500 transition-colors"
+                      >
+                        {/* Template Image */}
+                        {template.template_url && (
+                          <div className="mb-3 h-32 bg-gray-100 rounded overflow-hidden">
+                            <img
+                              src={template.template_url}
+                              alt={template.name}
+                              className="w-full h-full object-contain"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.parentElement.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">No preview</div>';
+                              }}
+                            />
+                          </div>
+                        )}
+
+                        {/* Template Info */}
+                        <h4 className="font-semibold text-lg mb-2">{template.name}</h4>
+                        <div className="text-sm text-gray-600 space-y-1 mb-3">
+                          <div>Product Key: <span className="font-mono bg-gray-100 px-1 rounded">{template.product_key}</span></div>
+                          <div>Print Areas: {template.print_areas?.length || 0}</div>
+                          <div>Base Price: ${template.base_price}</div>
+                          <div className="text-xs text-gray-500">
+                            Created: {new Date(template.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+
+                        {/* Print Areas List */}
+                        {template.print_areas && template.print_areas.length > 0 && (
+                          <div className="mb-3">
+                            <div className="text-xs font-medium text-gray-700 mb-1">Print Areas:</div>
+                            <div className="flex flex-wrap gap-1">
+                              {template.print_areas.map((area, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-block text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded"
+                                >
+                                  {area.name} ({area.shape || 'rect'})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => loadTemplateForEditing(template)}
+                            className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                          >
+                            <Settings className="w-4 h-4" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            onClick={() => deleteTemplate(template)}
+                            className="flex items-center justify-center px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-6 border-t flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <button
+                    onClick={loadAvailableTemplates}
+                    disabled={loadingTemplates}
+                    className="flex items-center space-x-1 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+                  >
+                    <RotateCw className={`w-4 h-4 ${loadingTemplates ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                  <button
+                    onClick={() => setShowTemplateManager(false)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Close
                   </button>
                 </div>
               </div>
