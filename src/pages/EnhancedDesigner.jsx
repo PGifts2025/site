@@ -6,7 +6,7 @@ import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseConfig, isMockAuth } from '../config/supabase';
 import { createMockSupabase } from '../utils/mockAuth';
-import productsConfig from '../config/products.json';
+import enhancedProductCatalog from '../config/enhancedProductCatalog.json';
 import PrintAreaAdmin from '../components/PrintAreaAdmin';
 import PrintAreaOverlay from '../components/PrintAreaOverlay';
 import PrintAreaSelector from '../components/PrintAreaSelector';
@@ -48,13 +48,31 @@ const supabase = isMockAuth
   ? createMockSupabase() 
   : createClient(supabaseConfig.url, supabaseConfig.anonKey);
 
+// Helper function to convert categorized products to flat product map
+const convertCatalogToProductMap = (catalog) => {
+  const productMap = {};
+  catalog.categories.forEach(category => {
+    category.products.forEach(product => {
+      productMap[product.key] = {
+        name: product.name,
+        template: product.template,
+        printAreas: product.printAreas,
+        colors: product.colors,
+        basePrice: product.basePrice,
+        category: category.name
+      };
+    });
+  });
+  return productMap;
+};
+
 const EnhancedDesigner = () => {
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const [canvas, setCanvas] = useState(null);
   const [availableProducts, setAvailableProducts] = useState({});
   const [productsLoading, setProductsLoading] = useState(true);
-  const [selectedProduct, setSelectedProduct] = useState('bag'); // Start with bag for testing
+  const [selectedProduct, setSelectedProduct] = useState('5oz-cotton-bag'); // Start with 5oz Cotton Bag from catalog
   const [selectedColor, setSelectedColor] = useState('#ffffff');
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -98,8 +116,11 @@ const EnhancedDesigner = () => {
         // Import Supabase service
         const { loadProductConfiguration } = await import('../services/supabaseService');
         
-        // Start with validated local products
-        const validatedProducts = await getValidatedProducts(productsConfig);
+        // Convert the enhanced catalog to flat product map
+        const enhancedProducts = convertCatalogToProductMap(enhancedProductCatalog);
+        
+        // Validate the enhanced products
+        const validatedProducts = await getValidatedProducts(enhancedProducts);
         const mergedProducts = { ...validatedProducts };
         
         // Try to load each product from Supabase and merge with local config
@@ -135,8 +156,9 @@ const EnhancedDesigner = () => {
         }
       } catch (error) {
         console.error('Error loading products:', error);
-        // Fallback to original config if validation fails
-        setAvailableProducts(productsConfig);
+        // Fallback to enhanced catalog if validation fails
+        const fallbackProducts = convertCatalogToProductMap(enhancedProductCatalog);
+        setAvailableProducts(fallbackProducts);
       } finally {
         setProductsLoading(false);
       }
@@ -784,10 +806,18 @@ const EnhancedDesigner = () => {
                       {Object.keys(availableProducts).length === 0 ? (
                         <option value="">No products available</option>
                       ) : (
-                        Object.entries(availableProducts).map(([key, product]) => (
-                          <option key={key} value={key}>
-                            {product.name} - ${product.basePrice}
-                          </option>
+                        // Render products grouped by categories
+                        enhancedProductCatalog.categories.map((category) => (
+                          <optgroup key={category.name} label={category.name}>
+                            {category.products
+                              .filter(product => availableProducts[product.key]) // Only show available products
+                              .map((product) => (
+                                <option key={product.key} value={product.key}>
+                                  {product.name}
+                                </option>
+                              ))
+                            }
+                          </optgroup>
                         ))
                       )}
                     </select>
