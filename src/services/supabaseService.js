@@ -511,6 +511,389 @@ export const batchUpdatePrintAreas = async (productTemplateId, printAreasConfig)
 };
 
 // =====================================================
+// Product Template Variants Operations (Color + View Support)
+// =====================================================
+
+/**
+ * Get all variants for a product template
+ * @param {string} productTemplateId - Product template ID
+ * @returns {Promise<Array>} Array of product variants
+ */
+export const getProductVariants = async (productTemplateId) => {
+  if (isMockAuth) {
+    return [];
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('product_template_variants')
+      .select(`
+        *,
+        print_areas (*)
+      `)
+      .eq('product_template_id', productTemplateId)
+      .order('view_name', { ascending: true })
+      .order('color_name', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching product variants:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get a specific variant by color and view
+ * @param {string} productTemplateId - Product template ID
+ * @param {string} colorCode - Color code (e.g., "#000000")
+ * @param {string} viewName - View name (e.g., "front")
+ * @returns {Promise<Object|null>} Variant or null if not found
+ */
+export const getProductVariant = async (productTemplateId, colorCode, viewName) => {
+  if (isMockAuth) {
+    return null;
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('product_template_variants')
+      .select(`
+        *,
+        print_areas (*)
+      `)
+      .eq('product_template_id', productTemplateId)
+      .eq('color_code', colorCode)
+      .eq('view_name', viewName)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116' || error.message.includes('no rows')) {
+        return null;
+      }
+      throw error;
+    }
+    return data;
+  } catch (error) {
+    console.error('Error fetching product variant:', error);
+    throw error;
+  }
+};
+
+/**
+ * Create a product variant
+ * @param {Object} variant - Variant data
+ * @returns {Promise<Object>} Created variant
+ */
+export const createProductVariant = async (variant) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Would create product variant:', variant);
+    return { id: 'mock-variant-id', ...variant };
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('product_template_variants')
+      .insert({
+        product_template_id: variant.productTemplateId,
+        color_name: variant.colorName,
+        color_code: variant.colorCode,
+        view_name: variant.viewName,
+        template_url: variant.templateUrl
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error creating product variant:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update a product variant
+ * @param {string} variantId - Variant ID
+ * @param {Object} updates - Fields to update
+ * @returns {Promise<Object>} Updated variant
+ */
+export const updateProductVariant = async (variantId, updates) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Would update product variant:', variantId, updates);
+    return { id: variantId, ...updates };
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const updateData = {};
+    
+    if (updates.colorName) updateData.color_name = updates.colorName;
+    if (updates.colorCode) updateData.color_code = updates.colorCode;
+    if (updates.viewName) updateData.view_name = updates.viewName;
+    if (updates.templateUrl) updateData.template_url = updates.templateUrl;
+
+    const { data, error } = await client
+      .from('product_template_variants')
+      .update(updateData)
+      .eq('id', variantId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error updating product variant:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete a product variant
+ * @param {string} variantId - Variant ID
+ * @returns {Promise<void>}
+ */
+export const deleteProductVariant = async (variantId) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Would delete product variant:', variantId);
+    return;
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client
+      .from('product_template_variants')
+      .delete()
+      .eq('id', variantId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error deleting product variant:', error);
+    throw error;
+  }
+};
+
+/**
+ * Upsert a product variant (create or update)
+ * @param {string} productTemplateId - Product template ID
+ * @param {string} colorCode - Color code
+ * @param {string} viewName - View name
+ * @param {Object} variantData - Variant data
+ * @returns {Promise<Object>} Upserted variant
+ */
+export const upsertProductVariant = async (productTemplateId, colorCode, viewName, variantData) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Would upsert product variant');
+    return { id: 'mock-variant-id', ...variantData };
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('product_template_variants')
+      .upsert({
+        product_template_id: productTemplateId,
+        color_code: colorCode,
+        view_name: viewName,
+        color_name: variantData.colorName,
+        template_url: variantData.templateUrl
+      }, {
+        onConflict: 'product_template_id,color_code,view_name'
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error upserting product variant:', error);
+    throw error;
+  }
+};
+
+// =====================================================
+// Enhanced Print Area Operations (with Variant Support)
+// =====================================================
+
+/**
+ * Get print areas for a specific variant
+ * @param {string} variantId - Variant ID
+ * @returns {Promise<Array>} Array of print areas
+ */
+export const getPrintAreasByVariant = async (variantId) => {
+  if (isMockAuth) {
+    return [];
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('print_areas')
+      .select('*')
+      .eq('variant_id', variantId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching print areas by variant:', error);
+    throw error;
+  }
+};
+
+/**
+ * Create print area for a variant
+ * @param {string} variantId - Variant ID
+ * @param {Object} printArea - Print area data
+ * @returns {Promise<Object>} Created print area
+ */
+export const createPrintAreaForVariant = async (variantId, printArea) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Would create print area for variant:', printArea);
+    return { id: 'mock-id', variant_id: variantId, ...printArea };
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('print_areas')
+      .insert({
+        variant_id: variantId,
+        area_key: printArea.areaKey,
+        name: printArea.name,
+        x: printArea.x,
+        y: printArea.y,
+        width: printArea.width,
+        height: printArea.height,
+        max_width: printArea.maxWidth,
+        max_height: printArea.maxHeight,
+        shape: printArea.shape || 'rectangle'
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error creating print area for variant:', error);
+    throw error;
+  }
+};
+
+/**
+ * Batch update print areas for a variant
+ * @param {string} variantId - Variant ID
+ * @param {Object} printAreasConfig - Print areas configuration
+ * @returns {Promise<Array>} Updated print areas
+ */
+export const batchUpdatePrintAreasForVariant = async (variantId, printAreasConfig) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Would batch update print areas for variant:', printAreasConfig);
+    return Object.entries(printAreasConfig).map(([key, area]) => ({
+      id: `mock-${key}`,
+      variant_id: variantId,
+      area_key: key,
+      ...area
+    }));
+  }
+
+  try {
+    const client = getSupabaseClient();
+    
+    // Get existing print areas for this variant
+    const { data: existingAreas, error: fetchError } = await client
+      .from('print_areas')
+      .select('*')
+      .eq('variant_id', variantId);
+
+    if (fetchError) throw fetchError;
+
+    const existingAreasMap = new Map(
+      (existingAreas || []).map(area => [area.area_key, area])
+    );
+
+    // Delete areas that are no longer in the config
+    const configKeys = new Set(Object.keys(printAreasConfig));
+    const areasToDelete = Array.from(existingAreasMap.values())
+      .filter(area => !configKeys.has(area.area_key))
+      .map(area => area.id);
+
+    if (areasToDelete.length > 0) {
+      const { error: deleteError } = await client
+        .from('print_areas')
+        .delete()
+        .in('id', areasToDelete);
+      
+      if (deleteError) throw deleteError;
+    }
+
+    // Update/insert areas
+    const operations = [];
+    for (const [areaKey, areaData] of Object.entries(printAreasConfig)) {
+      const existingArea = existingAreasMap.get(areaKey);
+
+      if (existingArea) {
+        operations.push(
+          client
+            .from('print_areas')
+            .update({
+              name: areaData.name,
+              x: areaData.x,
+              y: areaData.y,
+              width: areaData.width,
+              height: areaData.height,
+              max_width: areaData.maxWidth,
+              max_height: areaData.maxHeight,
+              shape: areaData.shape || 'rectangle'
+            })
+            .eq('id', existingArea.id)
+            .select()
+        );
+      } else {
+        operations.push(
+          client
+            .from('print_areas')
+            .insert({
+              variant_id: variantId,
+              area_key: areaKey,
+              name: areaData.name,
+              x: areaData.x,
+              y: areaData.y,
+              width: areaData.width,
+              height: areaData.height,
+              max_width: areaData.maxWidth,
+              max_height: areaData.maxHeight,
+              shape: areaData.shape || 'rectangle'
+            })
+            .select()
+        );
+      }
+    }
+
+    if (operations.length > 0) {
+      const results = await Promise.all(operations);
+      const errors = results.filter(r => r.error);
+      if (errors.length > 0) throw errors[0].error;
+
+      const updatedAreas = results
+        .filter(r => r.data)
+        .flatMap(r => Array.isArray(r.data) ? r.data : [r.data])
+        .filter(area => area != null);
+
+      return updatedAreas;
+    }
+
+    return [];
+  } catch (error) {
+    console.error('Error batch updating print areas for variant:', error);
+    throw error;
+  }
+};
+
+// =====================================================
 // Template Image Upload Operations
 // =====================================================
 
@@ -629,16 +1012,20 @@ export const replaceTemplateImage = async (oldImageUrl, newFile, productKey) => 
 // =====================================================
 
 /**
- * Save complete product configuration (template + print areas)
+ * Save complete product configuration with variants (color + view support)
  * @param {string} productKey - Product key
  * @param {Object} config - Complete configuration
+ * @param {string} colorCode - Color code for variant
+ * @param {string} viewName - View name for variant
  * @returns {Promise<Object>} Saved configuration
  */
-export const saveProductConfiguration = async (productKey, config) => {
+export const saveProductConfiguration = async (productKey, config, colorCode = null, viewName = 'front') => {
   if (isMockAuth) {
-    console.log('Mock mode: Configuration saved! (in real app, this would save to Supabase)', {
+    console.log('Mock mode: Configuration saved!', {
       productKey,
-      config
+      config,
+      colorCode,
+      viewName
     });
     return { productKey, ...config };
   }
@@ -653,8 +1040,8 @@ export const saveProductConfiguration = async (productKey, config) => {
         productKey,
         name: config.name,
         templateUrl: config.template,
-        colors: config.colors,
-        basePrice: config.basePrice
+        colors: config.colors || [],
+        basePrice: config.basePrice || 0
       });
     } else {
       // Update existing template
@@ -666,9 +1053,28 @@ export const saveProductConfiguration = async (productKey, config) => {
       });
     }
 
-    // Batch update print areas
-    if (config.printAreas) {
-      await batchUpdatePrintAreas(template.id, config.printAreas);
+    // Save variant if color and view are specified
+    if (colorCode) {
+      // Upsert the variant
+      const variant = await upsertProductVariant(
+        template.id,
+        colorCode,
+        viewName,
+        {
+          colorName: colorCode, // Can be enhanced to have separate name
+          templateUrl: config.template
+        }
+      );
+
+      // Batch update print areas for this variant
+      if (config.printAreas) {
+        await batchUpdatePrintAreasForVariant(variant.id, config.printAreas);
+      }
+    } else {
+      // Fallback: batch update print areas for template (backward compatibility)
+      if (config.printAreas) {
+        await batchUpdatePrintAreas(template.id, config.printAreas);
+      }
     }
 
     // Return complete configuration
@@ -680,13 +1086,66 @@ export const saveProductConfiguration = async (productKey, config) => {
 };
 
 /**
- * Load complete product configuration from Supabase
+ * Save variant-specific configuration
  * @param {string} productKey - Product key
+ * @param {string} colorCode - Color code
+ * @param {string} viewName - View name
+ * @param {Object} variantConfig - Variant-specific configuration
+ * @returns {Promise<Object>} Saved variant
+ */
+export const saveVariantConfiguration = async (productKey, colorCode, viewName, variantConfig) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Variant configuration saved!', {
+      productKey,
+      colorCode,
+      viewName,
+      variantConfig
+    });
+    return { productKey, colorCode, viewName, ...variantConfig };
+  }
+
+  try {
+    // Get product template
+    const template = await getProductTemplate(productKey);
+    if (!template) {
+      throw new Error(`Product template not found: ${productKey}`);
+    }
+
+    // Upsert the variant
+    const variant = await upsertProductVariant(
+      template.id,
+      colorCode,
+      viewName,
+      {
+        colorName: variantConfig.colorName || colorCode,
+        templateUrl: variantConfig.templateUrl
+      }
+    );
+
+    // Batch update print areas for this variant
+    if (variantConfig.printAreas) {
+      await batchUpdatePrintAreasForVariant(variant.id, variantConfig.printAreas);
+    }
+
+    // Return complete variant with print areas
+    return await getProductVariant(template.id, colorCode, viewName);
+  } catch (error) {
+    console.error('Error saving variant configuration:', error);
+    throw error;
+  }
+};
+
+/**
+ * Load complete product configuration from Supabase
+ * Includes support for color variations and multiple views
+ * @param {string} productKey - Product key
+ * @param {string} colorCode - Optional color code to load specific variant
+ * @param {string} viewName - Optional view name to load specific variant
  * @returns {Promise<Object|null>} Product configuration or null if not found
  */
-export const loadProductConfiguration = async (productKey) => {
+export const loadProductConfiguration = async (productKey, colorCode = null, viewName = 'front') => {
   if (isMockAuth) {
-    console.log('Mock mode: Would load configuration for:', productKey);
+    console.log('Mock mode: Would load configuration for:', productKey, colorCode, viewName);
     return null;
   }
 
@@ -695,6 +1154,40 @@ export const loadProductConfiguration = async (productKey) => {
     
     if (!template) return null;
 
+    // If color and view are specified, try to load variant-specific configuration
+    if (colorCode && viewName) {
+      const variant = await getProductVariant(template.id, colorCode, viewName);
+      
+      if (variant && variant.print_areas) {
+        // Convert print areas array to object format for variant
+        const printAreasObj = {};
+        variant.print_areas.forEach(area => {
+          printAreasObj[area.area_key] = {
+            name: area.name,
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height,
+            maxWidth: area.max_width,
+            maxHeight: area.max_height,
+            shape: area.shape || 'rectangle'
+          };
+        });
+
+        return {
+          name: template.name,
+          template: variant.template_url,
+          printAreas: printAreasObj,
+          colors: template.colors,
+          basePrice: template.base_price,
+          currentColor: colorCode,
+          currentView: viewName,
+          variantId: variant.id
+        };
+      }
+    }
+
+    // Fallback: Load default configuration from template
     // Convert print areas array to object format
     const printAreasObj = {};
     if (template.print_areas) {
@@ -725,6 +1218,59 @@ export const loadProductConfiguration = async (productKey) => {
   }
 };
 
+/**
+ * Load all variants for a product
+ * @param {string} productKey - Product key
+ * @returns {Promise<Object>} Object with variants grouped by color and view
+ */
+export const loadProductVariants = async (productKey) => {
+  if (isMockAuth) {
+    console.log('Mock mode: Would load variants for:', productKey);
+    return { colors: {}, views: [] };
+  }
+
+  try {
+    const template = await getProductTemplate(productKey);
+    if (!template) return { colors: {}, views: [] };
+
+    const variants = await getProductVariants(template.id);
+    
+    // Group variants by color and view
+    const colorMap = {};
+    const viewSet = new Set();
+
+    variants.forEach(variant => {
+      const colorCode = variant.color_code;
+      const viewName = variant.view_name;
+
+      if (!colorMap[colorCode]) {
+        colorMap[colorCode] = {
+          name: variant.color_name,
+          code: colorCode,
+          views: {}
+        };
+      }
+
+      colorMap[colorCode].views[viewName] = {
+        variantId: variant.id,
+        templateUrl: variant.template_url,
+        printAreas: variant.print_areas || []
+      };
+
+      viewSet.add(viewName);
+    });
+
+    return {
+      colors: colorMap,
+      views: Array.from(viewSet).sort(),
+      availableColors: template.colors || []
+    };
+  } catch (error) {
+    console.error('Error loading product variants:', error);
+    throw error;
+  }
+};
+
 export default {
   // Admin
   isUserAdmin,
@@ -737,12 +1283,25 @@ export default {
   updateProductTemplate,
   deleteProductTemplate,
   
+  // Product Template Variants (Color + View Support)
+  getProductVariants,
+  getProductVariant,
+  createProductVariant,
+  updateProductVariant,
+  deleteProductVariant,
+  upsertProductVariant,
+  
   // Print Areas
   getPrintAreas,
   createPrintArea,
   updatePrintArea,
   deletePrintArea,
   batchUpdatePrintAreas,
+  
+  // Print Areas (with Variant Support)
+  getPrintAreasByVariant,
+  createPrintAreaForVariant,
+  batchUpdatePrintAreasForVariant,
   
   // Template Images
   uploadTemplateImage,
@@ -751,5 +1310,7 @@ export default {
   
   // Complete Configuration
   saveProductConfiguration,
-  loadProductConfiguration
+  saveVariantConfiguration,
+  loadProductConfiguration,
+  loadProductVariants
 };
