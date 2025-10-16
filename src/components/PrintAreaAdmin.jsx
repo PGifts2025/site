@@ -17,11 +17,15 @@ import {
 import { useAuth } from './AuthProvider';
 import { supabaseConfig } from '../config/supabase';
 import { 
-  saveProductConfiguration, 
+  saveProductConfiguration,
+  saveVariantConfiguration,
   loadProductConfiguration, 
+  loadProductVariants,
+  getProductVariant,
   uploadTemplateImage, 
   replaceTemplateImage,
-  isCurrentUserAdmin 
+  isCurrentUserAdmin,
+  getProductTemplate
 } from '../services/supabaseService';
 
 /**
@@ -54,6 +58,13 @@ const PrintAreaAdmin = ({
   const [newAreaName, setNewAreaName] = useState('');
   const [newAreaShape, setNewAreaShape] = useState('rectangle');
   const [showNewAreaDialog, setShowNewAreaDialog] = useState(false);
+  
+  // Color and View support states
+  const [selectedColor, setSelectedColor] = useState(null);
+  const [selectedView, setSelectedView] = useState('front');
+  const [availableViews, setAvailableViews] = useState(['front']);
+  const [availableColors, setAvailableColors] = useState([]);
+  const [currentVariantId, setCurrentVariantId] = useState(null);
   
   // Backend persistence states
   const [isSaving, setIsSaving] = useState(false);
@@ -136,34 +147,62 @@ const PrintAreaAdmin = ({
     }
   }, []); // Empty dependency array - callback doesn't change
 
-  // Load product when selected - try Supabase first, fallback to products.json
+  // Load product when selected - initialize colors and views
   useEffect(() => {
     const loadProductData = async () => {
       if (!selectedProduct) return;
       
       setIsLoading(true);
       try {
-        // Try to load from Supabase first
+        // Load product configuration (without variant-specific data first)
+        let productConfig;
         const supabaseConfig = await loadProductConfiguration(selectedProduct);
         
         if (supabaseConfig) {
-          console.log('[PrintAreaAdmin] Loaded configuration from Supabase:', supabaseConfig);
-          setCurrentProduct(supabaseConfig);
-          setPrintAreas({ ...supabaseConfig.printAreas });
+          console.log('[PrintAreaAdmin] Loaded base configuration from Supabase:', supabaseConfig);
+          productConfig = supabaseConfig;
         } else if (productsConfig && productsConfig[selectedProduct]) {
           // Fallback to products.json
           console.log('[PrintAreaAdmin] Using configuration from products.json');
-          const product = productsConfig[selectedProduct];
-          setCurrentProduct(product);
-          setPrintAreas({ ...product.printAreas });
+          productConfig = productsConfig[selectedProduct];
+        }
+
+        if (productConfig) {
+          // Set available colors
+          const colors = productConfig.colors || ['#FFFFFF'];
+          setAvailableColors(colors);
+          
+          // Set default color if not already set
+          if (!selectedColor && colors.length > 0) {
+            setSelectedColor(colors[0]);
+          }
+
+          // Load variant data to determine available views
+          try {
+            const variants = await loadProductVariants(selectedProduct);
+            if (variants && variants.views && variants.views.length > 0) {
+              setAvailableViews(variants.views);
+              console.log('[PrintAreaAdmin] Available views:', variants.views);
+            } else {
+              setAvailableViews(['front']);
+            }
+          } catch (err) {
+            console.warn('[PrintAreaAdmin] Could not load variants, using default views:', err);
+            setAvailableViews(['front']);
+          }
+
+          setCurrentProduct(productConfig);
         }
       } catch (error) {
         console.error('[PrintAreaAdmin] Error loading product data:', error);
         // Fallback to products.json on error
         if (productsConfig && productsConfig[selectedProduct]) {
           const product = productsConfig[selectedProduct];
+          const colors = product.colors || ['#FFFFFF'];
+          setAvailableColors(colors);
+          if (!selectedColor) setSelectedColor(colors[0]);
+          setAvailableViews(['front']);
           setCurrentProduct(product);
-          setPrintAreas({ ...product.printAreas });
         }
       } finally {
         setIsLoading(false);
@@ -172,6 +211,52 @@ const PrintAreaAdmin = ({
 
     loadProductData();
   }, [selectedProduct, productsConfig]);
+
+  // Load variant-specific configuration when color or view changes
+  useEffect(() => {
+    const loadVariantData = async () => {
+      if (!selectedProduct || !selectedColor || !selectedView || !currentProduct) return;
+
+      console.log('[PrintAreaAdmin] Loading variant data for:', { selectedProduct, selectedColor, selectedView });
+      
+      try {
+        // Try to load variant-specific configuration
+        const variantConfig = await loadProductConfiguration(selectedProduct, selectedColor, selectedView);
+        
+        if (variantConfig && variantConfig.variantId) {
+          console.log('[PrintAreaAdmin] Loaded variant configuration:', variantConfig);
+          setCurrentVariantId(variantConfig.variantId);
+          setPrintAreas({ ...variantConfig.printAreas });
+          
+          // Update template URL if different
+          if (variantConfig.template !== currentProduct.template) {
+            setCurrentProduct(prev => ({
+              ...prev,
+              template: variantConfig.template,
+              _uploadTimestamp: Date.now()
+            }));
+          }
+        } else {
+          // No variant found, use base product configuration
+          console.log('[PrintAreaAdmin] No variant found, using base configuration');
+          setCurrentVariantId(null);
+          if (currentProduct.printAreas) {
+            setPrintAreas({ ...currentProduct.printAreas });
+          } else {
+            setPrintAreas({});
+          }
+        }
+      } catch (error) {
+        console.error('[PrintAreaAdmin] Error loading variant data:', error);
+        // Fallback to base product print areas
+        if (currentProduct && currentProduct.printAreas) {
+          setPrintAreas({ ...currentProduct.printAreas });
+        }
+      }
+    };
+
+    loadVariantData();
+  }, [selectedProduct, selectedColor, selectedView, currentProduct?.name]);
 
   // Track previous template URL to prevent unnecessary reloads
   const prevTemplateRef = useRef(null);
@@ -783,51 +868,77 @@ const PrintAreaAdmin = ({
       return;
     }
     
+    if (!selectedColor) {
+      setSaveMessage({ type: 'error', text: 'Please select a color variant to save.' });
+      return;
+    }
+
+    if (!selectedView) {
+      setSaveMessage({ type: 'error', text: 'Please select a view to save.' });
+      return;
+    }
+    
     if (!isAdmin) {
       setSaveMessage({ type: 'error', text: 'Only administrators can save configurations.' });
       return;
     }
 
     setIsSaving(true);
-    setSaveMessage({ type: 'info', text: 'Saving configuration to Supabase database...' });
+    setSaveMessage({ type: 'info', text: `Saving configuration for ${selectedColor} - ${selectedView} view...` });
 
     try {
-      const updatedProduct = {
-        name: currentProduct.name,
-        template: currentProduct.template,
-        printAreas: printAreas,
-        colors: currentProduct.colors,
-        basePrice: currentProduct.basePrice
+      const variantConfig = {
+        colorName: selectedColor,
+        templateUrl: currentProduct.template,
+        printAreas: printAreas
       };
 
-      console.log('[PrintAreaAdmin] Saving configuration to Supabase:', {
+      console.log('[PrintAreaAdmin] Saving variant configuration to Supabase:', {
         productKey: selectedProduct,
-        product: updatedProduct,
+        color: selectedColor,
+        view: selectedView,
         printAreasCount: Object.keys(printAreas).length,
         database: supabaseConfig.url
       });
 
-      // Save to Supabase database
-      const result = await saveProductConfiguration(selectedProduct, updatedProduct);
+      // Save variant-specific configuration
+      const result = await saveVariantConfiguration(
+        selectedProduct,
+        selectedColor,
+        selectedView,
+        variantConfig
+      );
       
-      console.log('[PrintAreaAdmin] ✓ Successfully saved to Supabase database:', result);
+      console.log('[PrintAreaAdmin] ✓ Successfully saved variant to Supabase database:', result);
 
       // Also call the parent callback if provided
       if (onSaveConfiguration) {
+        const updatedProduct = {
+          name: currentProduct.name,
+          template: currentProduct.template,
+          printAreas: printAreas,
+          colors: currentProduct.colors,
+          basePrice: currentProduct.basePrice
+        };
         onSaveConfiguration(selectedProduct, updatedProduct);
       }
 
-      // Show detailed success message with longer timeout
+      // Show detailed success message
       const now = new Date();
       const timestamp = now.toLocaleTimeString();
       setLastSaved(now);
       
       setSaveMessage({ 
         type: 'success', 
-        text: `✓ Configuration saved successfully! Product: "${currentProduct.name}", Print Areas: ${Object.keys(printAreas).length}, Saved at: ${timestamp}` 
+        text: `✓ Configuration saved! Product: "${currentProduct.name}", Color: ${selectedColor}, View: ${selectedView}, Print Areas: ${Object.keys(printAreas).length}, Saved at: ${timestamp}` 
       });
 
-      // Clear success message after 12 seconds (increased from 6)
+      // Update variant ID if returned
+      if (result && result.id) {
+        setCurrentVariantId(result.id);
+      }
+
+      // Clear success message after 12 seconds
       setTimeout(() => setSaveMessage(null), 12000);
     } catch (error) {
       console.error('[PrintAreaAdmin] ✗ Error saving to Supabase:', error);
@@ -1164,9 +1275,55 @@ const PrintAreaAdmin = ({
           <div className="flex justify-between items-center mb-3">
             <div>
               <h2 className="text-2xl font-bold">Print Area Configuration</h2>
-              <p className="text-gray-600">Product: {currentProduct.name}</p>
+              <p className="text-gray-600 mb-2">Product: {currentProduct.name}</p>
+              
+              {/* Color and View Selectors */}
+              <div className="flex items-center space-x-4 mt-3">
+                {/* Color Selector */}
+                {availableColors.length > 0 && (
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium text-gray-700">Color:</label>
+                    <select
+                      value={selectedColor || ''}
+                      onChange={(e) => setSelectedColor(e.target.value)}
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {availableColors.map(color => (
+                        <option key={color} value={color}>
+                          {color}
+                        </option>
+                      ))}
+                    </select>
+                    {/* Color preview */}
+                    <div 
+                      className="w-6 h-6 rounded border-2 border-gray-300"
+                      style={{ backgroundColor: selectedColor }}
+                      title={selectedColor}
+                    />
+                  </div>
+                )}
+                
+                {/* View Selector */}
+                {availableViews.length > 1 && (
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium text-gray-700">View:</label>
+                    <select
+                      value={selectedView}
+                      onChange={(e) => setSelectedView(e.target.value)}
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {availableViews.map(view => (
+                        <option key={view} value={view}>
+                          {view.charAt(0).toUpperCase() + view.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+              
               {lastSaved && (
-                <p className="text-sm text-green-600 mt-1 flex items-center">
+                <p className="text-sm text-green-600 mt-2 flex items-center">
                   <CheckCircle className="w-3 h-3 mr-1" />
                   Last saved: {lastSaved.toLocaleTimeString()}
                 </p>
