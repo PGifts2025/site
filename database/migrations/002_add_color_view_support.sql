@@ -92,8 +92,8 @@ DECLARE
 BEGIN
   FOR template_record IN SELECT * FROM product_templates LOOP
     -- Handle products with colors array
-    IF template_record.colors IS NOT NULL AND array_length(template_record.colors, 1) > 0 THEN
-      FOREACH color_value IN ARRAY template_record.colors LOOP
+    IF template_record.colors IS NOT NULL AND jsonb_array_length(template_record.colors) > 0 THEN
+      FOR color_value IN SELECT jsonb_array_elements_text(template_record.colors) LOOP
         -- Create variant for this color with front view
         INSERT INTO product_template_variants (
           product_template_id,
